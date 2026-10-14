@@ -19,17 +19,17 @@ Open Tidest and follow the permission guide. Accessibility lets Tidest bring you
 
 | Action | Default shortcut |
 | --- | --- |
-| Switch windows | Control + Tab |
-| Quick layout | Control + Q |
-| Pick Up Window | Control + W |
+| Switch windows | Option + Tab |
+| Quick layout | Option + Q |
+| Pick Up Window | Option + W |
 
 Change shortcuts in **Settings → Windows**. Click the current combination, hold Control, Option, or Command, then press another key; Shift may be added. Press Esc to cancel. If a shortcut is already in use, Tidest keeps the previous combination. The menu bar shows your current shortcuts.
 
 ### Switch windows
 
-1. Hold **Control** and press **Tab** to open the switcher.
-2. Keep Control held and press Tab to select the next window. Hold both keys to advance about once per second.
-3. Release Control to bring the selected window forward.
+1. Hold **Option** and press **Tab** to open the switcher.
+2. Keep Option held and press Tab to select the next window. Hold both keys to advance about once per second.
+3. Release Option to bring the selected window forward.
 
 Click a preview to switch immediately. Press Esc or click outside the panel to cancel.
 
@@ -41,7 +41,7 @@ Windows follow their front-to-back order on the current desktop. Minimized windo
 
 ### Quick layout
 
-Press **Control + Q**, then point at a visible part of the window you want to arrange. Click a layout or press its number:
+Press **Option + Q**, then point at a visible part of the window you want to arrange. Click a layout or press its number:
 
 | 1 · Top left | 2 · Top half | 3 · Top right |
 | --- | --- | --- |
@@ -50,18 +50,18 @@ Press **Control + Q**, then point at a visible part of the window you want to ar
 
 Corners use a quarter of the screen. Layouts use the available area on the screen under your pointer, leaving room for the menu bar and macOS Dock.
 
-The panel stays open after you release Control. Press Esc or click outside to cancel.
+The panel stays open after you release Option. Press Esc or click outside to cancel.
 
 ### Window Dock
 
 Window Dock is enabled by default on the right side of the screen.
 
-1. Press **Control + W** to start picking up a window.
+1. Press **Option + W** to start picking up a window.
 2. Click the highlighted window to pick up its preview. The original window stays where it is.
 3. Move the preview to the dock and click again to place it.
 4. Click a docked item to bring its window forward.
 
-Press Esc or Control + W again to cancel picking up a window. The dock opens when the pointer reaches its screen edge and closes when the pointer leaves. All displays share one list; moving a carried preview to the same edge on another display moves the dock there.
+Press Esc or Option + W again to cancel picking up a window. The dock opens when the pointer reaches its screen edge and closes when the pointer leaves. All displays share one list; moving a carried preview to the same edge on another display moves the dock there.
 
 - **Choose a side:** use the header's side button, or drag the header a short distance toward the center of the screen.
 - **Choose a view:** switch between thumbnails and icons with titles using the header's display control.

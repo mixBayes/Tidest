@@ -158,13 +158,13 @@ final class SettingsUITests: XCTestCase {
         let layout = app.buttons["layoutShortcutRecorder"]
         let resetLayout = app.buttons["resetLayoutShortcut"]
         scrollTo(layout, in: app)
-        XCTAssertTrue(layout.label.contains("Control + Q"))
+        XCTAssertTrue(layout.label.contains("Option + Q"))
         XCTAssertFalse(resetLayout.isEnabled)
         layout.click()
         app.typeKey("l", modifierFlags: [])
         XCTAssertTrue(app.staticTexts["layoutShortcutMessage"].waitForExistence(timeout: 2))
         app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(layout.label.contains("Control + Q"))
+        XCTAssertTrue(layout.label.contains("Option + Q"))
 
         recordShortcut("l", modifiers: .option, identifier: "layoutShortcutRecorder", in: app)
         XCTAssertTrue(layout.label.contains("Option + L"))
@@ -172,30 +172,30 @@ final class SettingsUITests: XCTestCase {
         saveScreenshot(app, name: "设置 · 自定义快速布局快捷键")
 
         recordShortcut("l", modifiers: .option, identifier: "shortcutRecorder", in: app)
-        XCTAssertTrue(app.buttons["shortcutRecorder"].label.contains("Control + Tab"))
+        XCTAssertTrue(app.buttons["shortcutRecorder"].label.contains("Option + Tab"))
         XCTAssertTrue(app.staticTexts["这个快捷键用于快速布局，请选择其他快捷键。"].exists)
         recordShortcut("l", modifiers: .option, identifier: "pinShortcutRecorder", in: app)
-        XCTAssertTrue(app.buttons["pinShortcutRecorder"].label.contains("Control + W"))
+        XCTAssertTrue(app.buttons["pinShortcutRecorder"].label.contains("Option + W"))
         XCTAssertTrue(app.staticTexts["这个快捷键用于快速布局，请选择其他快捷键。"].exists)
 
-        recordShortcut(XCUIKeyboardKey.tab.rawValue, modifiers: .control, identifier: "layoutShortcutRecorder", in: app)
+        recordShortcut(XCUIKeyboardKey.tab.rawValue, modifiers: .option, identifier: "layoutShortcutRecorder", in: app)
         XCTAssertTrue(layout.label.contains("Option + L"))
         XCTAssertTrue(app.staticTexts["这个快捷键用于窗口切换，请选择其他快捷键。"].exists)
-        recordShortcut("w", modifiers: .control, identifier: "layoutShortcutRecorder", in: app)
+        recordShortcut("w", modifiers: .option, identifier: "layoutShortcutRecorder", in: app)
         XCTAssertTrue(layout.label.contains("Option + L"))
         XCTAssertTrue(app.staticTexts["这个快捷键用于拾取窗口，请选择其他快捷键。"].exists)
 
-        // Control + Q becomes available when layout moves to another shortcut.
-        recordShortcut("q", modifiers: .control, identifier: "shortcutRecorder", in: app)
-        XCTAssertTrue(app.buttons["shortcutRecorder"].label.contains("Control + Q"))
+        // Option + Q becomes available when layout moves to another shortcut.
+        recordShortcut("q", modifiers: .option, identifier: "shortcutRecorder", in: app)
+        XCTAssertTrue(app.buttons["shortcutRecorder"].label.contains("Option + Q"))
         scrollTo(resetLayout, in: app)
         resetLayout.click()
         XCTAssertTrue(layout.label.contains("Option + L"))
         scrollTo(app.buttons["resetShortcut"], in: app)
         app.buttons["resetShortcut"].click()
 
-        recordShortcut("q", modifiers: .control, identifier: "pinShortcutRecorder", in: app)
-        XCTAssertTrue(app.buttons["pinShortcutRecorder"].label.contains("Control + Q"))
+        recordShortcut("q", modifiers: .option, identifier: "pinShortcutRecorder", in: app)
+        XCTAssertTrue(app.buttons["pinShortcutRecorder"].label.contains("Option + Q"))
         scrollTo(resetLayout, in: app)
         resetLayout.click()
         XCTAssertTrue(layout.label.contains("Option + L"))
@@ -203,7 +203,7 @@ final class SettingsUITests: XCTestCase {
         app.buttons["resetPinShortcut"].click()
         scrollTo(resetLayout, in: app)
         resetLayout.click()
-        XCTAssertTrue(layout.label.contains("Control + Q"))
+        XCTAssertTrue(layout.label.contains("Option + Q"))
         XCTAssertFalse(resetLayout.isEnabled)
     }
 
@@ -228,7 +228,7 @@ final class SettingsUITests: XCTestCase {
         let app = launchSettings(language: "zh-Hans")
         let recorder = app.buttons["shortcutRecorder"]
         XCTAssertTrue(recorder.waitForExistence(timeout: 3))
-        XCTAssertTrue(recorder.label.contains("Control + Tab"))
+        XCTAssertTrue(recorder.label.contains("Option + Tab"))
         XCTAssertFalse(app.buttons["resetShortcut"].isEnabled)
         app.activate()
         recorder.click()
@@ -236,7 +236,7 @@ final class SettingsUITests: XCTestCase {
         app.typeKey("k", modifierFlags: [])
         XCTAssertTrue(app.staticTexts["shortcutMessage"].waitForExistence(timeout: 2))
         app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(recorder.label.contains("Control + Tab"))
+        XCTAssertTrue(recorder.label.contains("Option + Tab"))
         app.activate()
         recorder.click()
         XCTAssertTrue(app.staticTexts["按 Esc 取消"].waitForExistence(timeout: 2))
@@ -249,7 +249,7 @@ final class SettingsUITests: XCTestCase {
         saveScreenshot(app, name: "设置 · 自定义快捷键")
         app.activate()
         app.buttons["resetShortcut"].click()
-        XCTAssertTrue(recorder.label.contains("Control + Tab"))
+        XCTAssertTrue(recorder.label.contains("Option + Tab"))
         XCTAssertFalse(app.buttons["resetShortcut"].isEnabled)
 
         app.activate()

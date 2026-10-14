@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var guideWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private var statusItem: NSStatusItem?
     private var currentGuide: PermissionGuide?
     private var guideOpenedManually = false
     private var isRecordingShortcut = false
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastScreenCaptureGranted: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installStatusItem()
         languageObservation = settings.$language.receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
             settingsWindow?.title = settings.text("设置")
@@ -113,13 +115,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if hasShortcutMessage { showSettings() }
     }
 
+    private func installStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            button.image = NSImage(named: "MenuBarIcon")
+            button.image?.isTemplate = true
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.setAccessibilityLabel("Tidest")
+            button.setAccessibilityIdentifier("tidestMenuBarIcon")
+        }
+        statusItem = item
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type != .rightMouseUp {
+            refreshPermissions()
+            if bringGuideToFront() { return }
+        }
+        // Attach the native menu only while it is tracking. Otherwise the status
+        // item consumes clicks before our action can bring an open guide forward.
+        statusItem?.menu = makeStatusMenu()
+        sender.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    private func makeStatusMenu() -> NSMenu {
+        let menu = NSMenu()
+        func addAction(_ title: String, _ action: Selector, key: String = "") {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = self
+            menu.addItem(item)
+        }
+        func addShortcut(_ title: String, _ shortcut: WindowShortcut) {
+            let item = NSMenuItem(title: settings.text("%@ · %@", settings.text(title), shortcut.symbolDisplayName),
+                                  action: nil, keyEquivalent: "")
+            item.setAccessibilityLabel(settings.text("%@ · %@", settings.text(title), shortcut.displayName))
+            menu.addItem(item)
+        }
+        addAction(settings.text("设置"), #selector(showSettings), key: ",")
+        menu.addItem(.separator())
+        addShortcut("窗口切换", settings.shortcut)
+        addShortcut("快速布局", settings.layoutShortcut)
+        if settings.pinningEnabled { addShortcut("拾取窗口", settings.pinShortcut) }
+        addAction(settings.text("使用说明"), #selector(showUsageGuide))
+        menu.addItem(.separator())
+        let aboutTitle = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            .map { settings.text("关于 Tidest %@", $0) } ?? settings.text("关于 Tidest")
+        addAction(aboutTitle, #selector(showAbout))
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: settings.text("退出"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.addItem(quit)
+        return menu
+    }
+
+    @discardableResult
+    private func bringGuideToFront() -> Bool {
+        guard currentGuide != nil, let window = guideWindow else { return false }
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
     // A menu request always shows the missing permission, even when reminders are suppressed.
     func showGuide() {
         permissions.refresh()
         presentGuide(permissions.manualGuide, manuallyOpened: true)
     }
 
-    func showUsageGuide() {
+    @objc func showUsageGuide() {
         permissions.refresh()
         presentGuide(permissions.accessibilityGranted ? .granted : .accessibility, manuallyOpened: true)
     }
@@ -141,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             isRecordingShortcut = false
         }
         if guideWindow == nil {
-            let window = NSWindow(contentRect: CGRect(origin: .zero, size: ContentView.windowSize),
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: ContentView.windowSize(for: guide)),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Tidest"
             window.titlebarAppearsTransparent = true
@@ -152,12 +218,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         currentGuide = guide
         guideOpenedManually = manuallyOpened
+        guideWindow?.setContentSize(ContentView.windowSize(for: guide))
         guideWindow?.contentView = NSHostingView(rootView: ContentView(
             permissions: permissions, settings: settings, guide: guide,
             onFinish: { [weak self] in self?.finishGuide() },
             onQuit: { [weak self] in self?.quitGuide() }))
-        guideWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        bringGuideToFront()
         startPermissionPolling()
     }
 
@@ -182,12 +248,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else { NSApp.terminate(nil) }
     }
 
-    func showSettings() {
+    @objc func showSettings() {
         switcher.dismiss()
         quickLayout.dismiss()
         pinnedWindows.cancelInteraction()
         refreshPermissions()
-        guard isPreview || permissions.accessibilityGranted else { return }
+        guard isPreview || permissions.accessibilityGranted else {
+            bringGuideToFront()
+            return
+        }
         if settingsWindow == nil {
             let window = NSWindow(contentRect: CGRect(origin: .zero, size: SettingsView.windowSize),
                                   styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
@@ -208,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    func showAbout() {
+    @objc func showAbout() {
         switcher.dismiss()
         quickLayout.dismiss()
         pinnedWindows.cancelInteraction()
@@ -431,9 +500,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard !isPreview else { return true }
         refreshPermissions()
-        guard permissions.accessibilityGranted else { return true }
+        if bringGuideToFront() { return true }
         if let guide = permissions.startupGuide { presentGuide(guide, manuallyOpened: false) }
         else { showSettings() }
         return true

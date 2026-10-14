@@ -2,7 +2,9 @@ import SwiftUI
 
 @MainActor
 struct ContentView: View {
-    static let windowSize = CGSize(width: 460, height: 380)
+    static func windowSize(for guide: PermissionGuide) -> CGSize {
+        guide == .granted ? CGSize(width: 460, height: 380) : CGSize(width: 540, height: 500)
+    }
 
     @ObservedObject var permissions: PermissionStore
     @ObservedObject var settings: AppSettings
@@ -20,7 +22,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 Image(systemName: iconName)
                     .font(.system(size: 26))
@@ -37,6 +39,9 @@ struct ContentView: View {
                         Text(settings.text(permissionKey))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.quaternary, in: Capsule())
                     }
                 }
             }
@@ -60,10 +65,14 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("startUsingShortcut")
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(settings.text("找到 Tidest，打开旁边的开关"))
+                settingsExample
+                VStack(alignment: .leading, spacing: 10) {
+                    instruction(1, "点击“打开系统设置”")
+                    instruction(2, "找到 Tidest，打开旁边的开关")
                     Text(settings.text("回到这里，会自动检查是否开启"))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                        .padding(.leading, 30)
                 }
                 .font(.system(size: 13))
                 .lineSpacing(3)
@@ -81,12 +90,66 @@ struct ContentView: View {
             Spacer(minLength: 0)
             actions
         }
-        .padding(28)
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height, alignment: .topLeading)
+        .padding(26)
+        .frame(width: Self.windowSize(for: guide).width, height: Self.windowSize(for: guide).height, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, settings.locale)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("permissionGuide")
+    }
+
+    private var settingsExample: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.text("系统设置") + " › " + settings.text("隐私与安全性"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(settings.text(guide == .accessibility ? "辅助功能" : "屏幕录制"))
+                        .font(.system(size: 13, weight: .medium))
+                }
+                Spacer(minLength: 0)
+                Text(settings.text("示例"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            // A crop of the actual System Settings app row. The same row and
+            // switch appear in both privacy lists; surrounding labels stay localised.
+            Image("PermissionAppRow")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .overlay(alignment: .trailing) {
+                    Capsule()
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .frame(width: 42, height: 24)
+                        .padding(.trailing, 8)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.quaternary, lineWidth: 1)
+        }
+        .accessibilityIdentifier("permissionSettingsExample")
+    }
+
+    private func instruction(_ number: Int, _ key: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(String(number))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 20, height: 20)
+                .background(Color.accentColor.opacity(0.1), in: Circle())
+                .accessibilityHidden(true)
+            Text(settings.text(key))
+        }
     }
 
     private var titleKey: String {
@@ -133,7 +196,7 @@ struct ContentView: View {
     private var iconColor: Color {
         switch guide {
         case .accessibility: .blue
-        case .screenCapture: .red
+        case .screenCapture: .blue
         case .granted: .green
         }
     }

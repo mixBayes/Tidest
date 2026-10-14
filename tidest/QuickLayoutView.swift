@@ -61,7 +61,7 @@ struct QuickLayoutView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                Text("⌃ Q")
+                Text(settings.layoutShortcut.symbolDisplayName)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)

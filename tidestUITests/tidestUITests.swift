@@ -38,7 +38,7 @@ final class tidestUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["permissionGuide"].waitForExistence(timeout: 2))
     }
     @MainActor
-    func testFinderWindowsAreSeparateAndControlTabCycles() {
+    func testFinderWindowsAreSeparateAndOptionTabCycles() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-switcher", "--ui-preview-language=zh-Hans"]
         app.launch()
@@ -48,7 +48,7 @@ final class tidestUITests: XCTestCase {
         XCTAssertEqual(selected.value as? String, "文稿")
         saveScreenshot(app, name: "Finder 多窗口书页效果")
         for expected in ["下载", "项目资料", "图片", "归档", "文稿"] {
-            app.typeKey(.tab, modifierFlags: .control)
+            app.typeKey(.tab, modifierFlags: .option)
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: selected)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 2), .completed)
         }

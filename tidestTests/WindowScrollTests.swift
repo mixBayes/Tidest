@@ -104,7 +104,7 @@ final class WindowScrollTests: XCTestCase {
         NSApp.sendEvent(TestScrollEvent(event(y: -1, precise: false), window: other, windowNumber: other.windowNumber))
         XCTAssertEqual(controller.selection.index, 2)
 
-        let tab = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .control, timestamp: 1, windowNumber: panel.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: UInt16(kVK_Tab)))
+        let tab = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option, timestamp: 1, windowNumber: panel.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: UInt16(kVK_Tab)))
         NSApp.sendEvent(tab)
         XCTAssertEqual(controller.selection.index, 0)
         XCTAssertTrue(controller.isPresented)

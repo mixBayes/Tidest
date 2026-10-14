@@ -83,7 +83,7 @@
 "暂不开启" = "Not now";
 "完成" = "Done";
 "快速布局" = "Quick layout";
-"Control + Q · 快速布局" = "Control + Q · Quick layout";
+"Option + Q · 快速布局" = "Option + Q · Quick layout";
 "将鼠标下的窗口放到你选择的位置" = "Place the window under your pointer where you choose";
 "左上角" = "Top left";
 "上半屏" = "Top half";
