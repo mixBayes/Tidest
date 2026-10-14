@@ -1,0 +1,471 @@
+import AppKit
+import Carbon
+import Combine
+import SwiftUI
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private let shortcut = GlobalShortcut()
+    private let layoutShortcut = GlobalShortcut()
+    private let pinShortcut = GlobalShortcut()
+    private let switcher = SwitcherController()
+    private let quickLayout = QuickLayoutController()
+    private let settings = AppSettings.shared
+    private lazy var pinnedWindows = PinnedWindowsController(settings: settings, catalog: switcher.catalog)
+    private var guideWindow: NSWindow?
+    private var settingsWindow: NSWindow?
+    private var aboutWindow: NSWindow?
+    private var currentGuide: PermissionGuide?
+    private var guideOpenedManually = false
+    private var isRecordingShortcut = false
+    private var permissionTimer: Timer?
+    private var languageObservation: AnyCancellable?
+    private var permissions = PermissionStore(preview: AppDelegate.isPreviewMode)
+    private var lastAccessibilityGranted = false
+    private var lastScreenCaptureGranted: Bool?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        languageObservation = settings.$language.receive(on: RunLoop.main).sink { [weak self] _ in
+            guard let self else { return }
+            settingsWindow?.title = settings.text("设置")
+            aboutWindow?.title = settings.text("关于 Tidest")
+        }
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if isPreview {
+            settings.displayMode = arguments.contains("--ui-preview-tiled") ? .tiled : .carousel
+            if let rawLanguage = arguments.first(where: { $0.hasPrefix("--ui-preview-language=") }),
+               let language = AppLanguage(rawValue: String(rawLanguage.dropFirst("--ui-preview-language=".count))) {
+                settings.language = language
+            }
+        }
+        if arguments.contains("--ui-preview-about") {
+            showAbout()
+            return
+        }
+        if arguments.contains("--ui-preview-settings") {
+            permissions = PermissionStore(preview: true,
+                                          accessibility: arguments.contains("--ui-preview-granted-accessibility"),
+                                          screenCapture: arguments.contains("--ui-preview-granted-screen"))
+            showSettings()
+            return
+        }
+        if arguments.contains("--ui-preview-switcher") {
+            let count = arguments.first { $0.hasPrefix("--ui-preview-count=") }
+                .flatMap { Int($0.dropFirst("--ui-preview-count=".count)) } ?? 5
+            switcher.showPreview(count: count)
+            return
+        }
+        if arguments.contains("--ui-preview-layout") {
+            quickLayout.showPreview(constrained: arguments.contains("--ui-preview-layout-constrained"))
+            return
+        }
+        if arguments.contains("--ui-preview-pinned") {
+            let count = arguments.first { $0.hasPrefix("--ui-preview-count=") }
+                .flatMap { Int($0.dropFirst("--ui-preview-count=".count)) } ?? 5
+            pinnedWindows.showPreview(count: count)
+            return
+        }
+        if arguments.contains("--ui-preview-accessibility") {
+            permissions = PermissionStore(preview: true)
+            showGuide()
+            return
+        }
+        if arguments.contains("--ui-preview-screen") {
+            permissions = PermissionStore(preview: true, accessibility: true)
+            showGuide()
+            return
+        }
+        #endif
+        shortcut.onPress = { [weak self] direction in
+            guard let self else { return }
+            refreshPermissions()
+            guard permissions.accessibilityGranted else { return }
+            quickLayout.dismiss()
+            pinnedWindows.cancelInteraction()
+            switcher.press(direction, captureEnabled: permissions.screenCaptureGranted)
+        }
+        shortcut.onRelease = { [weak self] in self?.switcher.releaseShortcutKey() }
+        layoutShortcut.onPress = { [weak self] _ in
+            guard let self else { return }
+            refreshPermissions()
+            guard permissions.accessibilityGranted, !isRecordingShortcut else { return }
+            switcher.dismiss()
+            pinnedWindows.cancelInteraction()
+            quickLayout.present()
+        }
+        layoutShortcut.onRelease = { [weak self] in self?.quickLayout.releaseShortcutKey() }
+        pinShortcut.onPress = { [weak self] _ in
+            guard let self else { return }
+            refreshPermissions()
+            guard permissions.accessibilityGranted, settings.pinningEnabled, !isRecordingShortcut,
+                  !pinnedWindows.isShortcutHeld else { return }
+            switcher.dismiss()
+            quickLayout.dismiss()
+            pinnedWindows.pressShortcut()
+        }
+        pinShortcut.onRelease = { [weak self] in self?.pinnedWindows.releaseShortcut() }
+        startPermissionPolling()
+        refreshPermissions()
+        if let guide = permissions.startupGuide {
+            if currentGuide != guide || guideWindow?.isVisible != true { presentGuide(guide, manuallyOpened: false) }
+        }
+        else if hasShortcutMessage { showSettings() }
+    }
+
+    // A menu request always shows the missing permission, even when reminders are suppressed.
+    func showGuide() {
+        permissions.refresh()
+        presentGuide(permissions.manualGuide, manuallyOpened: true)
+    }
+
+    func showUsageGuide() {
+        permissions.refresh()
+        presentGuide(permissions.accessibilityGranted ? .granted : .accessibility, manuallyOpened: true)
+    }
+
+    private func presentGuide(_ guide: PermissionGuide, manuallyOpened: Bool) {
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        if guide == .accessibility && !isPreview {
+            shortcut.stop()
+            layoutShortcut.stop()
+            pinShortcut.stop()
+            switcher.stop()
+            quickLayout.stop()
+            pinnedWindows.stop()
+            settingsWindow?.makeFirstResponder(nil)
+            settingsWindow?.orderOut(nil)
+            aboutWindow?.orderOut(nil)
+            isRecordingShortcut = false
+        }
+        if guideWindow == nil {
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: ContentView.windowSize),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Tidest"
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            guideWindow = window
+        }
+        currentGuide = guide
+        guideOpenedManually = manuallyOpened
+        guideWindow?.contentView = NSHostingView(rootView: ContentView(
+            permissions: permissions, settings: settings, guide: guide,
+            onFinish: { [weak self] in self?.finishGuide() },
+            onQuit: { [weak self] in self?.quitGuide() }))
+        guideWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        startPermissionPolling()
+    }
+
+    private func finishGuide() {
+        let finishingGuide = currentGuide
+        if !isPreview {
+            refreshPermissions()
+            guard permissions.accessibilityGranted else { return }
+        }
+        if finishingGuide == .screenCapture {
+            presentGuide(.granted, manuallyOpened: guideOpenedManually)
+            return
+        }
+        guideWindow?.close()
+        guard !isPreview else { return }
+        startShortcuts()
+        if hasShortcutMessage { showSettings() }
+    }
+
+    private func quitGuide() {
+        if isPreview { guideWindow?.close() }
+        else { NSApp.terminate(nil) }
+    }
+
+    func showSettings() {
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        refreshPermissions()
+        guard isPreview || permissions.accessibilityGranted else { return }
+        if settingsWindow == nil {
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: SettingsView.windowSize),
+                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.contentView = NSHostingView(rootView: SettingsView(permissions: permissions, settings: settings,
+                onShortcutChange: { [weak self] value in self?.changeShortcut(value) },
+                onRecordingChange: { [weak self] recording in self?.setShortcutRecording(recording) },
+                onLayoutShortcutChange: { [weak self] value in self?.changeLayoutShortcut(value) },
+                onPinShortcutChange: { [weak self] value in self?.changePinShortcut(value) },
+                onPinEnabledChange: { [weak self] enabled in self?.setPinningEnabled(enabled) }))
+            window.center()
+            settingsWindow = window
+        }
+        settingsWindow?.title = settings.text("设置")
+        NSApp.activate()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func showAbout() {
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        refreshPermissions()
+        guard isPreview || permissions.accessibilityGranted else { return }
+        if aboutWindow == nil {
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: AboutView.windowSize),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.contentView = NSHostingView(rootView: AboutView(settings: settings))
+            window.center()
+            aboutWindow = window
+        }
+        aboutWindow?.title = settings.text("关于 Tidest")
+        NSApp.activate()
+        aboutWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func changeShortcut(_ value: WindowShortcut) -> String? {
+        guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
+        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于快速布局，请选择其他快捷键。" }
+        guard !value.hasSameKeys(as: settings.pinShortcut) else { return "这个快捷键用于拾取窗口，请选择其他快捷键。" }
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        permissions.refresh()
+        if !isPreview && permissions.accessibilityGranted {
+            let status = shortcut.start(value)
+            guard status == noErr else {
+                return status == eventHotKeyExistsErr ? "这个快捷键已被占用，请换一个。" : "暂时无法启用这个快捷键，请再试一次。"
+            }
+        }
+        settings.shortcut = value
+        permissions.shortcutMessage = nil
+        refreshPermissions()
+        return nil
+    }
+
+    private func changeLayoutShortcut(_ value: WindowShortcut) -> String? {
+        guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
+        guard !value.hasSameKeys(as: settings.shortcut) else { return "这个快捷键用于窗口切换，请选择其他快捷键。" }
+        guard !value.hasSameKeys(as: settings.pinShortcut) else { return "这个快捷键用于拾取窗口，请选择其他快捷键。" }
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        permissions.refresh()
+        if !isPreview && permissions.accessibilityGranted {
+            let status = layoutShortcut.start(value)
+            guard status == noErr else {
+                return status == eventHotKeyExistsErr ? "这个快捷键已被占用，请换一个。" : "暂时无法启用这个快捷键，请再试一次。"
+            }
+        }
+        settings.layoutShortcut = value
+        permissions.layoutShortcutMessage = nil
+        refreshPermissions()
+        return nil
+    }
+
+    private func changePinShortcut(_ value: WindowShortcut) -> String? {
+        guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
+        guard !value.hasSameKeys(as: settings.shortcut) else { return "这个快捷键用于窗口切换，请选择其他快捷键。" }
+        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于快速布局，请选择其他快捷键。" }
+        pinnedWindows.cancelInteraction()
+        permissions.refresh()
+        if !isPreview && permissions.accessibilityGranted && settings.pinningEnabled {
+            guard pinnedWindows.start(captureEnabled: permissions.screenCaptureGranted) else {
+                return "暂时无法启用拾取窗口，请重新打开 Tidest。"
+            }
+            let status = pinShortcut.start(value)
+            guard status == noErr else {
+                return status == eventHotKeyExistsErr ? "这个快捷键已被占用，请换一个。" : "暂时无法启用这个快捷键，请再试一次。"
+            }
+        }
+        settings.pinShortcut = value
+        permissions.pinShortcutMessage = nil
+        return nil
+    }
+
+    private func setPinningEnabled(_ enabled: Bool) {
+        settings.pinningEnabled = enabled
+        permissions.refresh()
+        if enabled && !isPreview && permissions.accessibilityGranted && !isRecordingShortcut {
+            startPinning()
+        } else if !enabled {
+            pinShortcut.stop()
+            pinnedWindows.stop()
+            permissions.pinShortcutMessage = nil
+        }
+    }
+
+    private func setShortcutRecording(_ recording: Bool) {
+        guard recording != isRecordingShortcut else { return }
+        isRecordingShortcut = recording
+        guard !isPreview else { return }
+        if recording {
+            shortcut.stop()
+            layoutShortcut.stop()
+            pinShortcut.stop()
+            quickLayout.dismiss()
+            pinnedWindows.stop()
+        }
+        else {
+            permissions.refresh()
+            startShortcuts()
+        }
+    }
+
+    private func startPermissionPolling() {
+        guard !isPreview, permissionTimer == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshPermissions() }
+        }
+        permissionTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func refreshPermissions() {
+        permissions.refresh()
+        guard !isPreview else { return }
+        let accessibilityChanged = lastAccessibilityGranted != permissions.accessibilityGranted
+        lastAccessibilityGranted = permissions.accessibilityGranted
+        if lastScreenCaptureGranted != permissions.screenCaptureGranted {
+            lastScreenCaptureGranted = permissions.screenCaptureGranted
+            switcher.updateCapturePermission(permissions.screenCaptureGranted)
+            pinnedWindows.updateCapturePermission(permissions.screenCaptureGranted)
+            if permissions.screenCaptureGranted && permissions.accessibilityGranted { switcher.scheduleStartupPreviews() }
+        }
+        if !permissions.accessibilityGranted {
+            if accessibilityChanged || shortcut.registeredShortcut != nil || layoutShortcut.registeredShortcut != nil || pinShortcut.registeredShortcut != nil || switcher.isPresented || quickLayout.isPresented || pinnedWindows.isEnabled {
+                shortcut.stop()
+                layoutShortcut.stop()
+                pinShortcut.stop()
+                switcher.stop()
+                quickLayout.stop()
+                pinnedWindows.stop()
+            }
+            if currentGuide != .accessibility || guideWindow?.isVisible != true {
+                presentGuide(.accessibility, manuallyOpened: guideOpenedManually)
+            }
+            return
+        }
+        if accessibilityChanged { startShortcuts() }
+        if guideWindow?.isVisible == true {
+            if currentGuide == .accessibility {
+                let nextGuide = guideOpenedManually
+                    ? permissions.manualGuide
+                    : (permissions.startupGuide ?? .granted)
+                presentGuide(nextGuide, manuallyOpened: guideOpenedManually)
+            } else if currentGuide == .screenCapture && permissions.screenCaptureGranted {
+                presentGuide(.granted, manuallyOpened: guideOpenedManually)
+            }
+        }
+        if accessibilityChanged && currentGuide == nil && hasShortcutMessage { showSettings() }
+    }
+
+    private static var isPreviewMode: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains { $0.hasPrefix("--ui-preview-") }
+        #else
+        false
+        #endif
+    }
+
+    private var isPreview: Bool { Self.isPreviewMode }
+
+    private var hasShortcutMessage: Bool {
+        permissions.shortcutMessage != nil || permissions.layoutShortcutMessage != nil || permissions.pinShortcutMessage != nil
+    }
+
+    private func startShortcuts() {
+        guard !isPreview, permissions.accessibilityGranted, !isRecordingShortcut else { return }
+        let layoutStatus = layoutShortcut.start(settings.layoutShortcut)
+        permissions.layoutShortcutMessage = layoutStatus == noErr ? nil :
+            (layoutStatus == eventHotKeyExistsErr ? "这个快捷键已被占用，请在设置中换一个。" : "暂时无法启用快捷键，请在设置中重新选择。")
+        startPinning()
+        guard !settings.shortcut.hasSameKeys(as: settings.layoutShortcut) else {
+            shortcut.stop()
+            permissions.shortcutMessage = "这个快捷键用于快速布局，请选择其他快捷键。"
+            return
+        }
+        let wasRegistered = shortcut.registeredShortcut != nil
+        let status = shortcut.start(settings.shortcut)
+        if status != noErr {
+            permissions.shortcutMessage = status == eventHotKeyExistsErr ? "这个快捷键已被占用，请在设置中换一个。" : "暂时无法启用快捷键，请在设置中重新选择。"
+            return
+        }
+        permissions.shortcutMessage = nil
+        if !wasRegistered { switcher.scheduleStartupPreviews() }
+    }
+
+    private func startPinning() {
+        guard !isPreview, permissions.accessibilityGranted, !isRecordingShortcut else { return }
+        guard settings.pinningEnabled else {
+            pinShortcut.stop()
+            pinnedWindows.stop()
+            permissions.pinShortcutMessage = nil
+            return
+        }
+        guard !settings.pinShortcut.hasSameKeys(as: settings.shortcut) else {
+            pinShortcut.stop()
+            permissions.pinShortcutMessage = "这个快捷键用于窗口切换，请选择其他快捷键。"
+            return
+        }
+        guard !settings.pinShortcut.hasSameKeys(as: settings.layoutShortcut) else {
+            pinShortcut.stop()
+            permissions.pinShortcutMessage = "这个快捷键用于快速布局，请选择其他快捷键。"
+            return
+        }
+        guard pinnedWindows.start(captureEnabled: permissions.screenCaptureGranted) else {
+            pinShortcut.stop()
+            permissions.pinShortcutMessage = "暂时无法启用拾取窗口，请重新打开 Tidest。"
+            return
+        }
+        let status = pinShortcut.start(settings.pinShortcut)
+        permissions.pinShortcutMessage = status == noErr ? nil :
+            (status == eventHotKeyExistsErr ? "这个快捷键已被占用，请在设置中换一个。" : "暂时无法启用快捷键，请在设置中重新选择。")
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !isPreview else { return true }
+        refreshPermissions()
+        guard permissions.accessibilityGranted else { return true }
+        if let guide = permissions.startupGuide { presentGuide(guide, manuallyOpened: false) }
+        else { showSettings() }
+        return true
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow,
+              isRecordingShortcut else { return }
+        window.makeFirstResponder(nil)
+    }
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        if closingWindow === settingsWindow {
+            closingWindow.makeFirstResponder(nil)
+            setShortcutRecording(false)
+        }
+        if closingWindow === guideWindow {
+            currentGuide = nil
+            guideOpenedManually = false
+            permissions.refresh()
+            if !isPreview && !permissions.accessibilityGranted { NSApp.terminate(nil) }
+        }
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        permissionTimer?.invalidate()
+        shortcut.stop()
+        layoutShortcut.stop()
+        pinShortcut.stop()
+        switcher.stop()
+        quickLayout.stop()
+        pinnedWindows.stop()
+        switcher.catalog.stop()
+        pinnedWindows.finishSavingPreviews()
+    }
+}

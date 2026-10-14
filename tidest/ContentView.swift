@@ -1,0 +1,175 @@
+import SwiftUI
+
+@MainActor
+struct ContentView: View {
+    static let windowSize = CGSize(width: 460, height: 380)
+
+    @ObservedObject var permissions: PermissionStore
+    @ObservedObject var settings: AppSettings
+    var guide: PermissionGuide
+    var onFinish: () -> Void
+    var onQuit: () -> Void
+
+    init(permissions: PermissionStore, settings: AppSettings? = nil, guide: PermissionGuide,
+         onFinish: @escaping () -> Void, onQuit: @escaping () -> Void) {
+        self.permissions = permissions
+        self.settings = settings ?? .shared
+        self.guide = guide
+        self.onFinish = onFinish
+        self.onQuit = onQuit
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 14) {
+                Image(systemName: iconName)
+                    .font(.system(size: 26))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(iconColor, in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(settings.text(titleKey))
+                        .font(.system(size: 22, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let permissionKey {
+                        Text(settings.text(permissionKey))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(settings.text(purposeKey))
+                if let consequenceKey {
+                    Text(settings.text(consequenceKey))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 13))
+            .lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if guide == .granted {
+                Text(settings.text("按住 %@，按 %@ 选择，松开切换",
+                                   settings.shortcut.modifierName, settings.shortcut.keyName))
+                    .font(.system(size: 13, weight: .medium))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("startUsingShortcut")
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(settings.text("找到 Tidest，打开旁边的开关"))
+                    Text(settings.text("回到这里，会自动检查是否开启"))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 13))
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("permissionSteps")
+            }
+
+            if guide == .screenCapture {
+                Toggle(settings.text("下次不再提醒"), isOn: $permissions.screenCaptureReminderSuppressed)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+                    .accessibilityIdentifier("suppressScreenCaptureReminder")
+            }
+
+            Spacer(minLength: 0)
+            actions
+        }
+        .padding(28)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.locale, settings.locale)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("permissionGuide")
+    }
+
+    private var titleKey: String {
+        switch guide {
+        case .accessibility: "允许切换窗口"
+        case .screenCapture: "显示窗口预览"
+        case .granted: "开始使用 Tidest"
+        }
+    }
+
+    private var permissionKey: String? {
+        switch guide {
+        case .accessibility: "辅助功能 · 必需"
+        case .screenCapture: "屏幕录制 · 可选"
+        case .granted: nil
+        }
+    }
+
+    private var purposeKey: String {
+        switch guide {
+        case .accessibility: "用于切换到你选择的窗口。"
+        case .screenCapture: "用于显示窗口预览。停靠预览保存在本机。"
+        case .granted: permissions.screenCaptureGranted
+            ? "窗口切换和窗口预览都可以使用。" : "现在可以切换窗口。"
+        }
+    }
+
+    private var consequenceKey: String? {
+        switch guide {
+        case .accessibility: "未开启时，无法使用 Tidest。"
+        case .screenCapture: "未开启时显示应用图标，窗口切换照常使用。"
+        case .granted: nil
+        }
+    }
+
+    private var iconName: String {
+        switch guide {
+        case .accessibility: "accessibility"
+        case .screenCapture: "record.circle"
+        case .granted: "checkmark"
+        }
+    }
+
+    private var iconColor: Color {
+        switch guide {
+        case .accessibility: .blue
+        case .screenCapture: .red
+        case .granted: .green
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
+            switch guide {
+            case .accessibility:
+                Button(settings.text("退出 Tidest"), action: onQuit)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("quitPermissionGuide")
+                Button(settings.text("打开系统设置")) { permissions.requestAccessibility() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("grantAccessibility")
+            case .screenCapture:
+                Button(settings.text("暂不开启"), action: onFinish)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("skipScreenCapture")
+                Button(settings.text("打开系统设置")) { permissions.requestScreenCapture() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("grantScreenCapture")
+            case .granted:
+                Button(settings.text("开始使用"), action: onFinish)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("closePermissionGuide")
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+    }
+}
+
+#Preview {
+    ContentView(permissions: PermissionStore(preview: true), guide: .screenCapture, onFinish: {}, onQuit: {})
+}

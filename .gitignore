@@ -1,0 +1,26 @@
+# Local workspace files
+AGENTS.md
+/designs/
+/output/
+
+# macOS metadata
+.DS_Store
+._*
+
+# Xcode personal settings
+xcuserdata/
+*.xcuserstate
+
+# Build and test output
+/build/
+/DerivedData/
+/.build/
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+
+# Packaged applications and installers
+*.app/
+*.dmg
+*.pkg
