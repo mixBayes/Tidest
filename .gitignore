@@ -24,3 +24,8 @@ xcuserdata/
 *.app/
 *.dmg
 *.pkg
+
+# Signing credentials must never be committed
+*.p12
+*.p8
+*.keychain-db

@@ -6,6 +6,8 @@ A macOS menu bar app for switching between individual windows, arranging them on
 
 Choose the exact window you need, including several windows from the same app or different folders open in Finder.
 
+The release workflow builds Developer ID signed, Apple notarized packages with verifiable build provenance for immutable GitHub releases. See [release setup and download verification](docs/RELEASING.md) for setup requirements and verification commands.
+
 ## Features
 
 - **Switch windows:** browse horizontal previews or a scrollable tile view using the keyboard, trackpad, or mouse.

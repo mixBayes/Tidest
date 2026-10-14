@@ -1,0 +1,161 @@
+name: Release
+
+"on":
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'mixBayes/Tidest'
+    runs-on: xcode-27
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      RELEASE_WORK_DIR: ${{ github.workspace }}/build/release
+      RELEASE_TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the release source and version
+        run: |
+          [[ "$GITHUB_REF_TYPE" == tag ]] || {
+            echo 'Select a version tag when running this workflow manually.' >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse "$GITHUB_SHA^{commit}")" ]]
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse "$GITHUB_REF^{commit}")" ]]
+          git merge-base --is-ancestor HEAD origin/main
+          git diff --exit-code HEAD
+          [[ -z "$(git ls-files --others --exclude-standard)" ]]
+          bash scripts/release.sh check "$RELEASE_TAG"
+          existing_tags="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')"
+          while IFS= read -r existing_tag; do
+            if [[ "$existing_tag" == "$RELEASE_TAG" ]]; then
+              echo "A release already exists for $RELEASE_TAG. Published releases cannot be replaced; remove an incomplete draft before retrying." >&2
+              exit 1
+            fi
+          done <<< "$existing_tags"
+
+      - name: Build Apple silicon and Intel app
+        run: bash scripts/release.sh build "$RELEASE_TAG"
+
+      - name: Sign, notarize and verify the app and DMG
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: bash scripts/release.sh package "$RELEASE_TAG"
+
+      - name: Attest the final files
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            ${{ env.RELEASE_WORK_DIR }}/Tidest-*.dmg
+            ${{ env.RELEASE_WORK_DIR }}/BUILD-INFO.json
+            ${{ env.RELEASE_WORK_DIR }}/SHA256SUMS
+
+      - name: Verify the provenance before uploading
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE_PATH" "$RELEASE_WORK_DIR/provenance.sigstore.json"
+          cd "$RELEASE_WORK_DIR"
+          shasum -a 256 -c SHA256SUMS
+          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS; do
+            gh attestation verify "$asset" -R "$GITHUB_REPOSITORY" \
+              --bundle provenance.sigstore.json \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
+
+      - name: Prepare the release notes
+        run: |
+          version="${RELEASE_TAG#v}"
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          Tidest $version for macOS 14 and later. One DMG supports Apple silicon and Intel.
+
+          Built from commit [$GITHUB_SHA](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA).
+          [Build, signing and Apple notarization run](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
+
+          The app and DMG are Developer ID signed, Apple notarized, and have stapled notarization tickets.
+          See BUILD-INFO.json for the toolchain, developer Team ID, file digest, and Apple submission IDs.
+
+          Verify your download:
+
+              gh release verify-asset $RELEASE_TAG ./Tidest-$version.dmg -R $GITHUB_REPOSITORY
+              gh attestation verify ./Tidest-$version.dmg -R $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release.yml --source-ref refs/tags/$RELEASE_TAG --source-digest $GITHUB_SHA --deny-self-hosted-runners
+
+          [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASING.md).
+          EOF
+
+      - name: Create a draft and upload all final assets
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
+            --title "Tidest ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release upload "$RELEASE_TAG" \
+            "$RELEASE_WORK_DIR/Tidest-${RELEASE_TAG#v}.dmg" \
+            "$RELEASE_WORK_DIR/BUILD-INFO.json" "$RELEASE_WORK_DIR/SHA256SUMS" \
+            "$RELEASE_WORK_DIR/provenance.sigstore.json"
+
+      - name: Download and verify the draft assets
+        run: |
+          download_dir="$(mktemp -d "$RUNNER_TEMP/tidest-download.XXXXXX")"
+          gh release download "$RELEASE_TAG" --dir "$download_dir"
+          cd "$download_dir"
+          shasum -a 256 -c SHA256SUMS
+          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS; do
+            gh attestation verify "$asset" -R "$GITHUB_REPOSITORY" \
+              --bundle provenance.sigstore.json \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
+
+      - name: Publish and verify the immutable release
+        run: |
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"
+          gh release verify-asset "$RELEASE_TAG" \
+            "$RELEASE_WORK_DIR/Tidest-${RELEASE_TAG#v}.dmg" -R "$GITHUB_REPOSITORY"
+          {
+            echo "Published [Tidest ${RELEASE_TAG#v}](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG)."
+            echo
+            echo "[Download DMG](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/Tidest-${RELEASE_TAG#v}.dmg)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save build and notarization diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/release/build.log
+            build/release/notarization-*.json
+          if-no-files-found: ignore
+          retention-days: 14
