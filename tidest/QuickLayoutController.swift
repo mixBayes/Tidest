@@ -235,7 +235,7 @@ final class QuickLayoutController {
         case kVK_ANSI_2, kVK_ANSI_Keypad2: number = 2
         case kVK_ANSI_3, kVK_ANSI_Keypad3: number = 3
         case kVK_ANSI_4, kVK_ANSI_Keypad4: number = 4
-        case kVK_ANSI_5, kVK_ANSI_Keypad5: number = 5
+        case kVK_ANSI_5, kVK_ANSI_Keypad5, kVK_Space: number = 5
         case kVK_ANSI_6, kVK_ANSI_Keypad6: number = 6
         case kVK_ANSI_7, kVK_ANSI_Keypad7: number = 7
         case kVK_ANSI_8, kVK_ANSI_Keypad8: number = 8

@@ -36,7 +36,7 @@ struct QuickLayoutView: View {
             }
             Spacer().frame(height: 12)
             HStack(spacing: 8) {
-                Text(settings.text("点击布局或按 1–9"))
+                Text(settings.text("点击布局或按 1–9 · 空格铺满"))
                 Spacer(minLength: 0)
                 Text(settings.text("Esc 取消"))
             }
