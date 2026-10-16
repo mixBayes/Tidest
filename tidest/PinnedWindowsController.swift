@@ -44,7 +44,6 @@ final class PinnedWindowsController {
     private var shelf: PinnedWindowsView?
     private var dragPanel: PinnedWindowsPanel?
     private var dragPreview: PinnedWindowDragPreviewView?
-    private var dockDisplayID: CGDirectDisplayID?
     private var presentedDisplayID: CGDirectDisplayID?
     private var isExpanded = false
     private var captureEnabled = false
@@ -147,10 +146,9 @@ final class PinnedWindowsController {
         isEnabled = true
         restoreSavedPreviews()
         hoverBlockedUntilPointerLeaves = false
-        if dockScreen == nil { dockDisplayID = screen(at: NSEvent.mouseLocation).map(displayID) }
         installPointerMonitoring()
         installWindowMonitoring()
-        logDiagnostic("start edge-notifications-only dockDisplay=\(dockDisplayID ?? 0) screens=\(NSScreen.screens.map { "\(displayID($0)):\($0.frame)" })")
+        logDiagnostic("start edge-notifications-only screens=\(NSScreen.screens.map { "\(displayID($0)):\($0.frame)" })")
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -242,7 +240,7 @@ final class PinnedWindowsController {
         isShortcutHeld = false
     }
 
-    func cancelInteraction() {
+    func cancelInteraction(animated: Bool = true) {
         logDiagnostic("interaction cancelled mode=\(isCaptureModeActive) expanded=\(isExpanded)")
         isCaptureModeActive = false
         restoreCaptureCursor()
@@ -258,8 +256,8 @@ final class PinnedWindowsController {
         insertionIndex = nil
         removingItem = false
         dragPanel?.orderOut(nil)
-        hoverBlockedUntilPointerLeaves = isAtDockEdge(NSEvent.mouseLocation)
-        collapse(animated: isEnabled)
+        hoverBlockedUntilPointerLeaves = edgeScreen(at: NSEvent.mouseLocation, tolerance: 3) != nil
+        collapse(animated: animated && isEnabled)
         render()
     }
 
@@ -290,8 +288,8 @@ final class PinnedWindowsController {
         updateDragPreview()
     }
 
-    private var dockScreen: NSScreen? {
-        NSScreen.screens.first { displayID($0) == dockDisplayID }
+    private var presentedScreen: NSScreen? {
+        NSScreen.screens.first { displayID($0) == presentedDisplayID }
     }
 
     private var hasActiveShelfDrag: Bool {
@@ -328,13 +326,25 @@ final class PinnedWindowsController {
     }
 
     private func edgeScreen(at point: CGPoint, tolerance: CGFloat) -> NSScreen? {
-        NSScreen.screens.first {
-            guard point.y >= $0.frame.minY && point.y <= $0.frame.maxY else { return false }
-            if settings.pinnedDockSide == .left {
-                return point.x >= $0.frame.minX && point.x <= $0.frame.minX + tolerance
+        let screens = NSScreen.screens
+        guard let index = Self.edgeScreenIndex(at: point, frames: screens.map(\.frame),
+                                               side: settings.pinnedDockSide, tolerance: tolerance) else { return nil }
+        return screens[index]
+    }
+
+    static func edgeScreenIndex(at point: CGPoint, frames: [CGRect], side: PinnedDockSide,
+                                tolerance: CGFloat = 3) -> Int? {
+        let isAtEdge: (CGRect) -> Bool = {
+            guard point.y >= $0.minY && point.y <= $0.maxY else { return false }
+            if side == .left {
+                return point.x >= $0.minX && point.x <= $0.minX + tolerance
             }
-            return point.x >= $0.frame.maxX - tolerance && point.x <= $0.frame.maxX
+            return point.x >= $0.maxX - tolerance && point.x <= $0.maxX
         }
+        // A shared horizontal border belongs to the display above it.
+        // Keep the outermost top border eligible too, including its corners.
+        return frames.firstIndex { point.y < $0.maxY && isAtEdge($0) }
+            ?? frames.firstIndex(where: isAtEdge)
     }
 
     private func clearHoverSelection(cancelCapture: Bool = true) {
@@ -502,7 +512,6 @@ final class PinnedWindowsController {
         let index = shelf?.insertionIndex(at: point) ?? windows.count
         let pinnedID = dock(window, thumbnail: captureEnabled ? picked.thumbnail : nil, at: index)
         insertionIndex = nil
-        dockDisplayID = display
         expand(on: screen)
         render()
         shelf?.reveal(pinnedID)
@@ -578,8 +587,8 @@ final class PinnedWindowsController {
         dragPreview = nil
         dragPanel?.orderOut(nil)
         dragPanel = nil
-        // Cancelling a pickup must not change the saved docking display.
-        if let dockScreen, isExpanded { expand(on: dockScreen) }
+        // Remove the preview's extra drawing space on the current display.
+        if let presentedScreen, isExpanded { expand(on: presentedScreen) }
         stopAutoScroll()
         scheduleCollapseAfterPointerLeaves(at: NSEvent.mouseLocation)
         render()
@@ -671,8 +680,7 @@ final class PinnedWindowsController {
 
     private func setDockSide(_ side: PinnedDockSide) {
         settings.pinnedDockSide = side
-        dockDisplayID = presentedDisplayID
-        if let dockScreen { ensurePanel(on: dockScreen) }
+        if let presentedScreen { ensurePanel(on: presentedScreen) }
         render()
     }
 
@@ -1108,7 +1116,7 @@ final class PinnedWindowsController {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: localEvents) { [weak self] event in
             guard let self, self.isEnabled else { return event }
             if !self.isCaptureModeActive, !self.isExpanded {
-                self.handleEdgeNotification(at: NSEvent.mouseLocation)
+                self.updatePointer(at: NSEvent.mouseLocation)
                 return event
             }
             defer { self.updateCaptureCursor() }
@@ -1160,7 +1168,7 @@ final class PinnedWindowsController {
             MainActor.assumeIsolated {
                 guard let self, self.isEnabled else { return }
                 if !self.isCaptureModeActive, !self.isExpanded {
-                    self.handleEdgeNotification(at: NSEvent.mouseLocation)
+                    self.updatePointer(at: NSEvent.mouseLocation)
                     return
                 }
                 defer { self.updateCaptureCursor() }
@@ -1220,14 +1228,15 @@ final class PinnedWindowsController {
     }
 
     private func handleEdgeNotification(at point: CGPoint) {
-        guard isEnabled, !isCaptureModeActive, !isExpanded, let dockScreen else { return }
-        let atEdge = edgeScreen(at: point, tolerance: 3).map(displayID) == displayID(dockScreen)
+        guard isEnabled, !isCaptureModeActive, !hasActiveShelfDrag else { return }
+        let screen = edgeScreen(at: point, tolerance: 3)
         if hoverBlockedUntilPointerLeaves {
-            if !atEdge { hoverBlockedUntilPointerLeaves = false }
+            if screen == nil { hoverBlockedUntilPointerLeaves = false }
             return
         }
-        guard atEdge, !isHardwareMouseButtonPressed else { return }
-        expand(on: dockScreen)
+        guard let screen, !isHardwareMouseButtonPressed,
+              !isExpanded || presentedDisplayID != displayID(screen) else { return }
+        expand(on: screen)
     }
 
     private func schedulePointerUpdate(at point: CGPoint) {
@@ -1255,8 +1264,12 @@ final class PinnedWindowsController {
         pointerUpdateTask = nil
     }
 
-    private func updatePointer(at point: CGPoint) {
-        guard isEnabled, isCaptureModeActive || isExpanded else { return }
+    func updatePointer(at point: CGPoint) {
+        guard isEnabled else { return }
+        if !isCaptureModeActive, !isExpanded {
+            handleEdgeNotification(at: point)
+            return
+        }
         #if DEBUG
         diagnosticPointerUpdates += 1
         let diagnosticNow = ProcessInfo.processInfo.systemUptime
@@ -1268,7 +1281,7 @@ final class PinnedWindowsController {
             let sessionLeft = CGEventSource.buttonState(.combinedSessionState, button: .left)
             let sessionRight = CGEventSource.buttonState(.combinedSessionState, button: .right)
             let edgeDisplay = edgeScreen(at: point, tolerance: 3).map(displayID) ?? 0
-            logDiagnostic("pointer updates=\(diagnosticPointerUpdates) mode=\(isCaptureModeActive) session=\(selectionSession != nil) picked=\(pickedWindow != nil) itemDrag=\(itemDrag != nil) shelfDrag=\(shelfDrag != nil) mouseButtons=\(appKitButtons) expanded=\(isExpanded) visible=\(panel?.isVisible == true) side=\(settings.pinnedDockSide.rawValue) dockDisplay=\(dockDisplayID ?? 0) edgeDisplay=\(edgeDisplay) point=\(point)")
+            logDiagnostic("pointer updates=\(diagnosticPointerUpdates) mode=\(isCaptureModeActive) session=\(selectionSession != nil) picked=\(pickedWindow != nil) itemDrag=\(itemDrag != nil) shelfDrag=\(shelfDrag != nil) mouseButtons=\(appKitButtons) expanded=\(isExpanded) visible=\(panel?.isVisible == true) side=\(settings.pinnedDockSide.rawValue) presentedDisplay=\(presentedDisplayID ?? 0) edgeDisplay=\(edgeDisplay) point=\(point)")
             logDiagnostic("input-sources appKitButtons=\(appKitButtons) hidLeft=\(hidLeft) hidRight=\(hidRight) sessionLeft=\(sessionLeft) sessionRight=\(sessionRight)")
         }
         #endif
@@ -1288,6 +1301,7 @@ final class PinnedWindowsController {
             scheduleCollapseAfterPointerLeaves(at: point)
             return
         }
+        handleEdgeNotification(at: point)
         scheduleCollapseAfterPointerLeaves(at: point)
     }
 
@@ -1310,8 +1324,8 @@ final class PinnedWindowsController {
     }
 
     private func isAtDockEdge(_ point: CGPoint) -> Bool {
-        guard let dockScreen else { return false }
-        return edgeScreen(at: point, tolerance: 3).map(displayID) == displayID(dockScreen)
+        guard let presentedDisplayID else { return false }
+        return edgeScreen(at: point, tolerance: 3).map(displayID) == presentedDisplayID
     }
 
     private func cancelScheduledCollapse() {
@@ -1799,9 +1813,8 @@ final class PinnedWindowsController {
         guard isEnabled else { return }
         // Screen changes invalidate every cached visible region and origin,
         // even when the shortcut is held before its first mouse-down.
-        cancelInteraction()
-        if dockScreen == nil { dockDisplayID = screen(at: NSEvent.mouseLocation).map(displayID) }
-        if isExpanded, let dockScreen { expand(on: dockScreen) }
+        cancelInteraction(animated: false)
+        presentedDisplayID = nil
     }
 
     #if DEBUG
@@ -1812,7 +1825,6 @@ final class PinnedWindowsController {
         messageTask?.cancel()
         messageTask = nil
         message = nil
-        dockDisplayID = screen(at: NSEvent.mouseLocation).map(displayID)
         windows = (0..<min(150, max(0, count))).map { index in
             let window = WindowItem(element: AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier),
                        processID: ProcessInfo.processInfo.processIdentifier, applicationName: "Tidest",
@@ -1825,7 +1837,7 @@ final class PinnedWindowsController {
         }
         thumbnails.removeAll()
         confirmedClosedIDs.removeAll()
-        if let dockScreen { expand(on: dockScreen) }
+        if let screen = screen(at: NSEvent.mouseLocation) { expand(on: screen) }
     }
     #endif
 

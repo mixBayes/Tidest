@@ -63,7 +63,7 @@ Window Dock is enabled by default on the right side of the screen.
 3. Move the preview to the dock and click again to place it.
 4. Click a docked item to bring its window forward.
 
-Press Esc or Option + W again to cancel picking up a window. The dock opens when the pointer reaches its screen edge and closes when the pointer leaves. All displays share one list; moving a carried preview to the same edge on another display moves the dock there.
+Press Esc or Option + W again to cancel picking up a window. The dock opens when the pointer reaches the chosen edge of any display and closes when the pointer leaves. All displays share one list; reaching the same edge on another display moves the dock there, even while it is still open.
 
 - **Choose a side:** use the header's side button, or drag the header a short distance toward the center of the screen.
 - **Choose a view:** switch between thumbnails and icons with titles using the header's display control.

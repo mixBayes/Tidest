@@ -164,10 +164,20 @@ final class PinnedWindowLaunchService {
         // Validate every input before causing any application to open.
         try await Task.detached(priority: .userInitiated) { try PinnedAppleEvents.validate(saved.target) }.value
         let previous = await accessibilityWindows(for: saved.applicationBundleIdentifier)
+        let configuration = NSWorkspace.OpenConfiguration()
+        if case .terminal = saved.target {
+            // Terminal's normal open/reopen event can create a default window.
+            // Only launch it here; do script below creates the saved window.
+            configuration.activates = false
+            configuration.appleEvent = NSAppleEventDescriptor(
+                eventClass: PinnedAppleEvents.fourCC("ascr"), eventID: PinnedAppleEvents.fourCC("noop"),
+                targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: saved.applicationBundleIdentifier),
+                returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        }
         let app: NSRunningApplication
         do {
             app = try await NSWorkspace.shared.openApplication(at: applicationURL,
-                                                               configuration: NSWorkspace.OpenConfiguration())
+                                                               configuration: configuration)
         } catch {
             throw PinnedWindowLaunchError.openFailed
         }
