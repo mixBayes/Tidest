@@ -165,14 +165,17 @@ final class PinnedWindowLaunchService {
         try await Task.detached(priority: .userInitiated) { try PinnedAppleEvents.validate(saved.target) }.value
         let previous = await accessibilityWindows(for: saved.applicationBundleIdentifier)
         let configuration = NSWorkspace.OpenConfiguration()
-        if case .terminal = saved.target {
-            // Terminal's normal open/reopen event can create a default window.
-            // Only launch it here; do script below creates the saved window.
+        switch saved.target {
+        case .finder, .terminal:
+            // A normal open/reopen event can create a default window before
+            // the saved folder or directory is opened in its own window.
+            // Only launch here; create below opens the exact saved target.
             configuration.activates = false
             configuration.appleEvent = NSAppleEventDescriptor(
                 eventClass: PinnedAppleEvents.fourCC("ascr"), eventID: PinnedAppleEvents.fourCC("noop"),
                 targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: saved.applicationBundleIdentifier),
                 returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        default: break
         }
         let app: NSRunningApplication
         do {

@@ -93,7 +93,7 @@ final class PinnedWindowCardTests: XCTestCase {
     }
 
     @MainActor
-    func testClosingAddsStatusAndKeepsTitleWidthAndPreview() throws {
+    func testClosingAddsStatusSpaceAndReopeningRemovesItWithoutChangingPreview() throws {
         try withSettings { settings in
             let title = "窗口标题很长时应该保留开头的文字，仅在末尾显示省略号"
             let icon = NSImage(size: CGSize(width: 32, height: 32))
@@ -125,19 +125,26 @@ final class PinnedWindowCardTests: XCTestCase {
 
                 entry.window = nil
                 card.update(window: entry, thumbnail: thumbnail, settings: settings, highlighted: false, dragging: false)
+                let closedHeight = card.preferredHeight(for: 184)
+                card.setFrameSize(CGSize(width: 184, height: closedHeight))
                 card.layoutSubtreeIfNeeded()
                 let indicator = try XCTUnwrap(card.subviews.first { $0.toolTip == settings.text("已关闭") })
                 XCTAssertEqual(label.stringValue, title)
                 XCTAssertEqual(label.toolTip, originalTooltip)
                 XCTAssertEqual(label.lineBreakMode, .byTruncatingTail)
-                XCTAssertGreaterThan(label.frame.width, 100)
-                XCTAssertEqual(card.subviews.map(\.frame), originalFrames)
-                XCTAssertEqual(card.preferredHeight(for: 184), height)
-                XCTAssertEqual(card.previewRect, originalPreview)
+                XCTAssertGreaterThanOrEqual(label.frame.width, 100)
+                XCTAssertEqual(closedHeight - height, thumbnail == nil ? 8 : 16)
+                XCTAssertEqual(label.frame.width, originalFrames[2].width)
+                if thumbnail != nil { XCTAssertEqual(card.previewRect, originalPreview) }
                 XCTAssertFalse(indicator.isHidden)
-                XCTAssertEqual(indicator.frame.minX, label.frame.minX)
+                XCTAssertGreaterThan(indicator.frame.minX, status.frame.maxX)
+                XCTAssertEqual(indicator.frame.midY, status.frame.midY)
+                XCTAssertLessThanOrEqual(indicator.frame.maxX, label.frame.maxX)
                 XCTAssertGreaterThan(indicator.frame.minY, label.frame.maxY)
                 XCTAssertFalse(status.isHidden)
+                XCTAssertEqual(status.frame.minX, label.frame.minX)
+                XCTAssertLessThanOrEqual(status.frame.width, label.frame.width)
+                XCTAssertLessThanOrEqual(status.frame.maxY, card.bounds.height - 8)
                 for (index, view) in card.subviews.enumerated() where view !== indicator && view !== status {
                     XCTAssertEqual(view.isHidden, originalHidden[index])
                 }
@@ -146,8 +153,19 @@ final class PinnedWindowCardTests: XCTestCase {
                 }
 
                 // Repeated layouts must not progressively shrink the title.
+                let closedFrames = card.subviews.map(\.frame)
                 card.needsLayout = true
                 card.layoutSubtreeIfNeeded()
+                XCTAssertEqual(card.subviews.map(\.frame), closedFrames)
+
+                entry.window = window
+                card.update(window: entry, thumbnail: thumbnail, settings: settings, highlighted: false, dragging: false)
+                XCTAssertEqual(card.preferredHeight(for: 184), height)
+                card.setFrameSize(CGSize(width: 184, height: height))
+                card.layoutSubtreeIfNeeded()
+                XCTAssertTrue(indicator.isHidden)
+                XCTAssertTrue(status.isHidden)
+                XCTAssertEqual(card.subviews.map(\.isHidden), originalHidden)
                 XCTAssertEqual(card.subviews.map(\.frame), originalFrames)
             }
         }

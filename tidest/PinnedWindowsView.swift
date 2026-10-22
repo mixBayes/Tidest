@@ -829,7 +829,6 @@ final class PinnedWindowCardView: NSView {
             updateBackground()
         }
     }
-    private static let captionHeight: CGFloat = 40
     private static let cardInset: CGFloat = 8
     private static let captionGap: CGFloat = 8
     private static let previewCornerRadius: CGFloat = 8
@@ -851,6 +850,9 @@ final class PinnedWindowCardView: NSView {
     private var hovered = false
     private var hoverTrackingArea: NSTrackingArea?
     private var closedStatus = ""
+    private var captionHeight: CGFloat {
+        showsCaption ? (closedStatus.isEmpty ? 24 : 40) : 0
+    }
     var previewRect: CGRect { hasThumbnail ? preview.frame : icon.frame }
 
     override var isFlipped: Bool { true }
@@ -986,10 +988,10 @@ final class PinnedWindowCardView: NSView {
     }
 
     func preferredHeight(for width: CGFloat) -> CGFloat {
-        guard hasThumbnail else { return showsCaption ? 52 : 48 }
+        guard hasThumbnail else { return showsCaption ? (closedStatus.isEmpty ? 44 : 52) : 48 }
         let inset = showsCaption ? Self.cardInset : 0
         let imageHeight = min(148, max(72, max(0, width - inset * 2) / ratio))
-        return imageHeight + (showsCaption ? Self.captionHeight : 0) + inset * 2
+        return imageHeight + captionHeight + inset * 2
     }
 
     override func layout() {
@@ -1007,7 +1009,7 @@ final class PinnedWindowCardView: NSView {
         // Status has its own second line, leaving long window titles readable.
         let textRight = max(0, bounds.width - inset - buttonWidth - (buttonWidth > 0 ? 5 : 1))
         if hasThumbnail {
-            let viewportHeight = max(0, bounds.height - (showsCaption ? Self.captionHeight : 0) - inset * 2)
+            let viewportHeight = max(0, bounds.height - captionHeight - inset * 2)
             let width = min(max(0, bounds.width - inset * 2), viewportHeight * ratio)
             let height = width / ratio
             let imageRect = CGRect(x: (bounds.width - width) / 2, y: inset + (viewportHeight - height) / 2,
@@ -1038,12 +1040,16 @@ final class PinnedWindowCardView: NSView {
                                         width: 24, height: 24)
         }
         let diameter = Self.closedIndicatorDiameter
-        closedIndicator.frame = CGRect(x: titleLabel.frame.minX,
-                                       y: titleLabel.frame.maxY + 4,
-                                       width: diameter, height: diameter)
-        closedLabel.frame = CGRect(x: closedIndicator.frame.maxX + indicatorSpacing,
+        // Align the two text lines. Keep the dot after the status so it never
+        // intrudes into the app icon's column in the compact list.
+        let statusWidth = min(closedLabel.fittingSize.width,
+                              max(0, titleLabel.frame.width - indicatorSpacing - diameter))
+        closedLabel.frame = CGRect(x: titleLabel.frame.minX,
                                   y: titleLabel.frame.maxY + 1,
-                                  width: max(0, textRight - closedIndicator.frame.maxX - indicatorSpacing), height: 14)
+                                  width: statusWidth, height: 14)
+        closedIndicator.frame = CGRect(x: closedLabel.frame.maxX + indicatorSpacing,
+                                       y: closedLabel.frame.midY - diameter / 2,
+                                       width: diameter, height: diameter)
     }
 
     override func viewDidChangeEffectiveAppearance() {
