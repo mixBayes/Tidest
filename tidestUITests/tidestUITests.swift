@@ -154,6 +154,8 @@ final class tidestUITests: XCTestCase {
         let firstSelected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "文稿"), object: selected)
         XCTAssertEqual(XCTWaiter.wait(for: [firstSelected], timeout: 2), .completed)
         XCTAssertEqual(selected.value as? String, "文稿")
+        XCTAssertLessThan(selected.frame.height, 20)
+        XCTAssertGreaterThanOrEqual(selected.frame.minY, app.buttons["windowCard-0"].frame.maxY)
         XCTAssertTrue(app.staticTexts["switcherSelectionInstructions"].exists)
         let viewport = app.scrollViews.firstMatch
         XCTAssertTrue(viewport.exists)

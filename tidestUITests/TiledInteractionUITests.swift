@@ -68,6 +68,8 @@ final class TiledInteractionUITests: XCTestCase {
             (object as? XCUIElement)?.isSelected == true
         }, object: selectedCard)
         XCTAssertEqual(XCTWaiter.wait(for: [highlighted], timeout: 2), .completed, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(selected.frame.minY, selectedCard.frame.maxY, file: file, line: line)
+        XCTAssertLessThan(selected.frame.height, 20, file: file, line: line)
     }
 
     @MainActor

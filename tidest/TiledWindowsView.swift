@@ -60,14 +60,15 @@ private struct WindowTilesContent: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
+                        .accessibilityHidden(true)
                     Text(window.title)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
+                        .accessibilityIdentifier("selectedWindowTitle")
                 }
                 .frame(width: frame.width, height: 14, alignment: .leading)
                 .position(x: frame.midX, y: frame.maxY + 9)
                 .allowsHitTesting(false)
-                .accessibilityHidden(true)
             }
         }
         .frame(width: layout.contentSize.width, height: layout.contentSize.height)

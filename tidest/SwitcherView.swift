@@ -28,10 +28,12 @@ struct SwitcherView: View {
                 }
                 if model.windows.indices.contains(model.selection.index) {
                     let current = model.windows[model.selection.index]
-                    Text(current.title).font(.system(size: 20, weight: .semibold))
-                        .lineLimit(1).padding(.horizontal, 100)
-                        .help(current.title)
-                        .accessibilityIdentifier("selectedWindowTitle")
+                    if settings.displayMode == .carousel {
+                        Text(current.title).font(.system(size: 20, weight: .semibold))
+                            .lineLimit(1).padding(.horizontal, 100)
+                            .help(current.title)
+                            .accessibilityIdentifier("selectedWindowTitle")
+                    }
                     Text("\(current.applicationName) · \(model.selection.index + 1) / \(model.windows.count)\(current.minimized ? " · " + settings.text("已最小化") : "")")
                         .font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 6)
                 }
@@ -114,7 +116,7 @@ struct WindowCard: View {
         GeometryReader { geometry in
             ZStack {
                 if let thumbnail {
-                    Image(nsImage: thumbnail).resizable().scaledToFit()
+                    WindowThumbnailView(image: thumbnail)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .overlay(alignment: .bottomLeading) {
                             let inset = min(8, min(geometry.size.width, geometry.size.height) * 0.1)
@@ -133,7 +135,7 @@ struct WindowCard: View {
                     applicationIcon
                         .frame(width: iconSize, height: iconSize)
                         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                    // Short previews keep the app icon; the selected title remains below the list.
+                    // Short previews keep the app icon; selection also has an outside caption.
                     if titleHeight >= 16 {
                         Text(window.title).font(.system(size: 13, weight: .medium))
                             .lineLimit(2).multilineTextAlignment(.center)
@@ -161,5 +163,47 @@ struct WindowCard: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+private struct WindowThumbnailView: View {
+    let image: NSImage
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var frames: [Frame]
+
+    init(image: NSImage) {
+        self.image = image
+        _frames = State(initialValue: [Frame(image: image)])
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
+                Image(nsImage: frame.image).resizable().scaledToFit()
+                    .zIndex(Double(index))
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            }
+        }
+        .onChange(of: image) { _, image in
+            guard frames.last?.image !== image else { return }
+            let next = Frame(image: image)
+            if reduceMotion {
+                frames = [next]
+                return
+            }
+            // Keep every older image opaque until its replacement has fully
+            // appeared. Overlapping refreshes may only discard earlier frames.
+            withAnimation(.easeInOut(duration: 0.2), completionCriteria: .removed) {
+                frames.append(next)
+            } completion: {
+                guard let index = frames.firstIndex(where: { $0.id == next.id }) else { return }
+                frames.removeSubrange(..<index)
+            }
+        }
+    }
+
+    private struct Frame: Identifiable {
+        let id = UUID()
+        let image: NSImage
     }
 }
