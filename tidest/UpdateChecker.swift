@@ -8,9 +8,10 @@ final class UpdateChecker: ObservableObject {
         case idle
         case checking
         case upToDate
+        case updateAvailable(version: String)
         case downloadOpened(version: String)
         case checkFailed
-        case downloadFailed
+        case downloadFailed(version: String)
     }
 
     @Published private(set) var state: State = .idle
@@ -18,6 +19,7 @@ final class UpdateChecker: ObservableObject {
     private let currentVersion: String?
     private let fetch: (URLRequest) async throws -> (Data, URLResponse)
     private let openDownload: (URL) -> Bool
+    private var downloadURL: URL?
 
     init(currentVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
          fetch: @escaping (URLRequest) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(for: $0) },
@@ -29,6 +31,7 @@ final class UpdateChecker: ObservableObject {
 
     func checkForUpdates() async {
         guard state != .checking else { return }
+        downloadURL = nil
         state = .checking
 
         do {
@@ -53,10 +56,23 @@ final class UpdateChecker: ObservableObject {
                   let host = url.host, !host.isEmpty else {
                 throw CheckError.invalidResponse
             }
-            state = openDownload(url) ? .downloadOpened(version: release.version) : .downloadFailed
+            downloadURL = url
+            state = .updateAvailable(version: release.version)
         } catch {
             state = .checkFailed
         }
+    }
+
+    func downloadUpdate() {
+        let version: String
+        switch state {
+        case .updateAvailable(let availableVersion), .downloadFailed(let availableVersion):
+            version = availableVersion
+        default:
+            return
+        }
+        guard let downloadURL else { return }
+        state = openDownload(downloadURL) ? .downloadOpened(version: version) : .downloadFailed(version: version)
     }
 
     private struct Release: Decodable {

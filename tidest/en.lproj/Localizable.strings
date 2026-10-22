@@ -14,6 +14,11 @@
 "检查更新" = "Check for updates";
 "正在检查…" = "Checking…";
 "已是最新版本" = "You’re up to date";
+"发现新版本" = "New version available";
+"发现新版本 %@" = "Version %@ is available";
+"Tidest %@ 已可下载，是否现在下载？" = "Tidest %@ is available. Download now?";
+"稍后" = "Later";
+"下载" = "Download";
 "已在浏览器中打开 %@ 的下载链接。" = "The download link for %@ has opened in your browser.";
 "暂时无法检查更新，请稍后重试。" = "Unable to check for updates. Please try again later.";
 "无法打开下载链接，请稍后重试。" = "Unable to open the download link. Please try again later.";
@@ -177,3 +182,4 @@
 "切换为缩略图" = "Switch to thumbnails";
 "快速布局快捷键" = "Quick layout shortcut";
 "这个快捷键用于快速布局，请选择其他快捷键。" = "This shortcut opens quick layout. Choose another shortcut.";
+"Tidest 更新" = "Tidest Update";

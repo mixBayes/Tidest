@@ -66,7 +66,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor
     func testAboutIsASeparateWindow() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-preview-about", "--ui-preview-language=zh-Hans"]
+        app.launchArguments = ["--ui-preview-about", "--ui-preview-language=zh-Hans", "--ui-preview-update=up-to-date"]
         app.launch()
         XCTAssertTrue(app.windows["关于 Tidest"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Tidest"].exists)
@@ -77,6 +77,7 @@ final class SettingsUITests: XCTestCase {
         XCTAssertNotNil(versionText?.range(of: #"^版本\s+\d+(\.\d+)*$"#, options: .regularExpression))
         let update = app.buttons["checkForUpdates"]
         XCTAssertTrue(update.exists)
+        XCTAssertTrue(app.staticTexts["已是最新版本"].waitForExistence(timeout: 5))
         XCTAssertTrue(update.label.contains("检查更新"))
         XCTAssertTrue(update.isEnabled)
         saveScreenshot(app, name: "关于 Tidest · 版本")

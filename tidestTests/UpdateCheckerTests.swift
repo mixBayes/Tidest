@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class UpdateCheckerTests: XCTestCase {
-    func testNewerVersionOpensExactDownloadURLAndRequestsFreshJSON() async throws {
+    func testNewerVersionWaitsForConfirmationThenOpensExactDownloadURL() async throws {
         let downloadURL = "https://example.com/Tidest-2.0.10.dmg?source=app"
         var openedURLs: [URL] = []
         let checker = UpdateChecker(currentVersion: "2.0.9", fetch: { request in
@@ -21,11 +21,16 @@ final class UpdateCheckerTests: XCTestCase {
 
         await checker.checkForUpdates()
 
+        XCTAssertEqual(checker.state, .updateAvailable(version: "2.0.10"))
+        XCTAssertTrue(openedURLs.isEmpty)
+
+        checker.downloadUpdate()
+
         XCTAssertEqual(checker.state, .downloadOpened(version: "2.0.10"))
         XCTAssertEqual(openedURLs.map(\.absoluteString), [downloadURL])
     }
 
-    func testNumericVersionComparisonNeverDownloadsSameOrOlderVersions() async throws {
+    func testNumericVersionComparisonOnlyOffersNewerVersions() async throws {
         let cases: [(installed: String, latest: String, shouldDownload: Bool)] = [
             ("2.0.1", "2.0.1", false),
             ("2.0.1", "2.0.0", false),
@@ -51,8 +56,10 @@ final class UpdateCheckerTests: XCTestCase {
 
             await checker.checkForUpdates()
 
+            XCTAssertEqual(downloads, 0, "Checking must never download")
+            XCTAssertEqual(checker.state, test.shouldDownload ? .updateAvailable(version: test.latest) : .upToDate)
+            checker.downloadUpdate()
             XCTAssertEqual(downloads, test.shouldDownload ? 1 : 0, "\(test.installed) → \(test.latest)")
-            XCTAssertEqual(checker.state, test.shouldDownload ? .downloadOpened(version: test.latest) : .upToDate)
         }
     }
 
@@ -157,8 +164,10 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(checker.state, .checkFailed)
         await checker.checkForUpdates()
 
-        XCTAssertEqual(checker.state, .downloadOpened(version: "2.0.2"))
+        XCTAssertEqual(checker.state, .updateAvailable(version: "2.0.2"))
         XCTAssertEqual(requests, 2)
+        XCTAssertEqual(downloads, 0)
+        checker.downloadUpdate()
         XCTAssertEqual(downloads, 1)
     }
 
@@ -169,7 +178,9 @@ final class UpdateCheckerTests: XCTestCase {
 
         await checker.checkForUpdates()
 
-        XCTAssertEqual(checker.state, .downloadFailed)
+        XCTAssertEqual(checker.state, .updateAvailable(version: "2.0.2"))
+        checker.downloadUpdate()
+        XCTAssertEqual(checker.state, .downloadFailed(version: "2.0.2"))
     }
 
     func testRepeatedClickWhileCheckingDoesNotStartAnotherRequestOrDownload() async throws {
@@ -192,13 +203,58 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(checker.state, .checking)
 
         await checker.checkForUpdates()
+        checker.downloadUpdate()
         XCTAssertEqual(requests, 1)
         XCTAssertEqual(downloads, 0)
         continuation?.resume(returning: try response(version: "2.0.2"))
         await firstCheck.value
 
+        XCTAssertEqual(checker.state, .updateAvailable(version: "2.0.2"))
+        XCTAssertEqual(downloads, 0)
+        checker.downloadUpdate()
+        checker.downloadUpdate()
         XCTAssertEqual(checker.state, .downloadOpened(version: "2.0.2"))
         XCTAssertEqual(downloads, 1)
+    }
+
+    func testFailedRecheckDiscardsThePreviousDownload() async throws {
+        var requests = 0
+        let checker = UpdateChecker(currentVersion: "2.0.1", fetch: { _ in
+            requests += 1
+            if requests == 2 { throw URLError(.notConnectedToInternet) }
+            return try self.response(version: "2.0.2")
+        }, openDownload: { _ in
+            XCTFail("A failed recheck must not retain an old download")
+            return true
+        })
+
+        checker.downloadUpdate()
+        XCTAssertEqual(checker.state, .idle)
+        await checker.checkForUpdates()
+        XCTAssertEqual(checker.state, .updateAvailable(version: "2.0.2"))
+        await checker.checkForUpdates()
+        checker.downloadUpdate()
+        XCTAssertEqual(checker.state, .checkFailed)
+    }
+
+    func testFailedDownloadCanBeRetriedWithoutCheckingAgain() async throws {
+        var requests = 0
+        var openedURLs: [URL] = []
+        let checker = UpdateChecker(currentVersion: "2.0.1", fetch: { _ in
+            requests += 1
+            return try self.response(version: "2.0.2")
+        }, openDownload: { url in
+            openedURLs.append(url)
+            return openedURLs.count == 2
+        })
+
+        await checker.checkForUpdates()
+        checker.downloadUpdate()
+        XCTAssertEqual(checker.state, .downloadFailed(version: "2.0.2"))
+        checker.downloadUpdate()
+        XCTAssertEqual(checker.state, .downloadOpened(version: "2.0.2"))
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(openedURLs.map(\.absoluteString), Array(repeating: "https://example.com/Tidest.dmg", count: 2))
     }
 
     private func response(version: String, downloadURL: String = "https://example.com/Tidest.dmg") throws -> (Data, URLResponse) {

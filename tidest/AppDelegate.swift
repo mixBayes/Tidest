@@ -21,9 +21,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isRecordingShortcut = false
     private var permissionTimer: Timer?
     private var languageObservation: AnyCancellable?
-    private var permissions = PermissionStore(preview: AppDelegate.isPreviewMode)
+    private var permissions: PermissionStore
     private var lastAccessibilityGranted = false
     private var lastScreenCaptureGranted: Bool?
+
+    override convenience init() {
+        self.init(permissions: PermissionStore(preview: AppDelegate.isPreviewMode))
+    }
+
+    init(permissions: PermissionStore) {
+        self.permissions = permissions
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
@@ -132,10 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type != .rightMouseUp {
             refreshPermissions()
-            if bringGuideToFront() { return }
         }
-        // Attach the native menu only while it is tracking. Otherwise the status
-        // item consumes clicks before our action can bring an open guide forward.
+        // Rebuild the menu with the current language and shortcuts each time.
         statusItem?.menu = makeStatusMenu()
         sender.performClick(nil)
         statusItem?.menu = nil
@@ -203,7 +210,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pinnedWindows.stop()
             settingsWindow?.makeFirstResponder(nil)
             settingsWindow?.orderOut(nil)
-            aboutWindow?.orderOut(nil)
             isRecordingShortcut = false
         }
         if guideWindow == nil {
@@ -281,21 +287,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switcher.dismiss()
         quickLayout.dismiss()
         pinnedWindows.cancelInteraction()
-        refreshPermissions()
-        guard isPreview || permissions.accessibilityGranted else { return }
         if aboutWindow == nil {
             let window = NSWindow(contentRect: CGRect(origin: .zero, size: AboutView.windowSize),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.delegate = self
-            window.contentView = NSHostingView(rootView: AboutView(settings: settings))
+            let checker = makeUpdateChecker()
+            window.contentView = NSHostingView(rootView: AboutView(settings: settings, updateChecker: checker,
+                onUpdateAvailable: { [weak self] in
+                    Task { @MainActor [weak self] in self?.showUpdatePrompt(checker) }
+                }))
             window.center()
             aboutWindow = window
         }
         aboutWindow?.title = settings.text("关于 Tidest")
         NSApp.activate()
         aboutWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func showUpdatePrompt(_ checker: UpdateChecker) {
+        guard aboutWindow?.isVisible == true,
+              case .updateAvailable(let version) = checker.state else { return }
+        let alert = NSAlert()
+        alert.messageText = settings.text("发现新版本")
+        alert.informativeText = settings.text("Tidest %@ 已可下载，是否现在下载？", version)
+        alert.addButton(withTitle: settings.text("下载"))
+        alert.addButton(withTitle: settings.text("稍后")).keyEquivalent = "\u{1b}"
+        alert.window.identifier = NSUserInterfaceItemIdentifier("updatePrompt")
+        alert.window.title = settings.text("Tidest 更新")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn { checker.downloadUpdate() }
+    }
+
+    private func makeUpdateChecker() -> UpdateChecker {
+        #if DEBUG
+        if isPreview, let preview = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-preview-update=") }) {
+            let outcome = String(preview.dropFirst("--ui-preview-update=".count))
+            return UpdateChecker(currentVersion: "2.0.3", fetch: { request in
+                let delay = outcome == "checking" ? 30 : (outcome == "failed" ? 3 : 1)
+                try await Task.sleep(for: .seconds(delay))
+                if outcome == "failed" { throw URLError(.notConnectedToInternet) }
+                let version = outcome == "up-to-date" ? "2.0.3" : "2.0.4"
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "version": version, "download_url": "https://example.com/Tidest.dmg"
+                ])
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (data, response)
+            }, openDownload: { _ in outcome != "download-failed" })
+        }
+        #endif
+        return UpdateChecker()
     }
 
     private func changeShortcut(_ value: WindowShortcut) -> String? {
@@ -416,7 +458,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 quickLayout.stop()
                 pinnedWindows.stop()
             }
-            if currentGuide != .accessibility || guideWindow?.isVisible != true {
+            if aboutWindow?.isVisible != true,
+               currentGuide != .accessibility || guideWindow?.isVisible != true {
                 presentGuide(.accessibility, manuallyOpened: guideOpenedManually)
             }
             return
@@ -514,6 +557,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func windowWillClose(_ notification: Notification) {
         guard let closingWindow = notification.object as? NSWindow else { return }
+        if closingWindow === aboutWindow {
+            closingWindow.contentView = nil
+            aboutWindow = nil
+        }
         if closingWindow === settingsWindow {
             closingWindow.makeFirstResponder(nil)
             setShortcutRecording(false)

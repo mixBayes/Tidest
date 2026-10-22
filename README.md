@@ -98,7 +98,7 @@ Tidest checks permissions when it starts or is reopened. Use **Open System Setti
 
 ## Local data and privacy
 
-Choose **About Tidest → Check for updates** to check `https://tidest.app/api/update`. When a newer version is available, Tidest opens the returned installation-package link in your default browser. Install it after downloading. Update checks do not send your settings or window records.
+Opening **About Tidest** automatically checks `https://tidest.app/api/update`. When a newer version is available, Tidest shows its version and asks whether to download it. Only choosing **Download** opens the installation-package link in your default browser. Install it after downloading. You can also check again manually. About and update checks do not require Accessibility permission. Update checks do not send your settings or window records.
 
 Tidest stores its settings and window records on your Mac. The current app includes no analytics or upload service.
 
@@ -147,6 +147,7 @@ Debug builds provide UI preview arguments for development. These previews use sa
 | --- | --- |
 | Permission guides | `--ui-preview-accessibility` or `--ui-preview-screen` |
 | Settings / About | `--ui-preview-settings` or `--ui-preview-about` |
+| Update states | `--ui-preview-about --ui-preview-update=<state>`, where state is `checking`, `up-to-date`, `available`, `failed`, or `download-failed`; uses sample responses and never opens a browser |
 | Window switcher | `--ui-preview-switcher`; optionally `--ui-preview-tiled`, `--ui-preview-count=150`, `--ui-preview-thumbnails`, or `--ui-preview-refresh` |
 | Quick layout | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
 | Window Dock | `--ui-preview-pinned`; optionally `--ui-preview-count=20` |

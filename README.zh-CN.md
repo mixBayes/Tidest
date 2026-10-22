@@ -98,7 +98,7 @@ Tidest 在启动或重新打开时检查权限，可以点击通用页的 **前�
 
 ## 本地数据与隐私
 
-点击 **关于 Tidest → 检查更新**，应用会请求 `https://tidest.app/api/update`。有新版本时，自动在默认浏览器中打开接口返回的安装包下载链接，下载完成后自行安装。检查更新不会发送设置或窗口记录。
+打开 **关于 Tidest** 时，应用会自动请求 `https://tidest.app/api/update` 检查更新。有新版本时，显示版本号并询问是否下载；只有点击“下载”后，才会在默认浏览器中打开安装包下载链接，下载完成后自行安装。也可以点击“检查更新”重新检查。查看“关于”和检查更新均不需要辅助功能权限。检查更新不会发送设置或窗口记录。
 
 Tidest 将设置和窗口记录保存在这台 Mac 上。当前应用没有内置统计或上传服务。
 
@@ -147,6 +147,7 @@ Debug 构建提供开发用界面预览参数。预览使用示例窗口和独�
 | --- | --- |
 | 权限引导 | `--ui-preview-accessibility` 或 `--ui-preview-screen` |
 | 设置／关于 | `--ui-preview-settings` 或 `--ui-preview-about` |
+| 更新状态 | `--ui-preview-about --ui-preview-update=<state>`，state 可选 `checking`、`up-to-date`、`available`、`failed` 或 `download-failed`；使用示例响应，不会打开浏览器 |
 | 窗口切换 | `--ui-preview-switcher`，可附加 `--ui-preview-tiled`、`--ui-preview-count=150`、`--ui-preview-thumbnails` 或 `--ui-preview-refresh` |
 | 快速布局 | `--ui-preview-layout`，可附加 `--ui-preview-layout-constrained` |
 | 窗口停靠 | `--ui-preview-pinned`，可附加 `--ui-preview-count=20` |
