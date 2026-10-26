@@ -304,7 +304,16 @@ nonisolated enum PinnedAppleWindowID: Codable, Equatable, Hashable, Sendable {
     case text(String)
 
     init(_ descriptor: NSAppleEventDescriptor) throws {
-        if descriptor.descriptorType == typeSInt32 { self = .number(descriptor.int32Value) }
+        // Finder returns UInt32 IDs; Terminal window references contain Int64
+        // IDs. Normalize them before matching a system window or retrying.
+        if [typeSInt32, typeUInt32, typeSInt64].contains(descriptor.descriptorType) {
+            guard let value = descriptor.stringValue.flatMap(Int64.init),
+                  (Int64(Int32.min)...Int64(UInt32.max)).contains(value) else {
+                throw PinnedWindowLaunchError.windowUnavailable
+            }
+            // System window IDs use all 32 bits, including the sign bit.
+            self = .number(Int32(truncatingIfNeeded: value))
+        }
         else if let value = descriptor.stringValue, !value.isEmpty { self = .text(value) }
         else { throw PinnedWindowLaunchError.windowUnavailable }
     }

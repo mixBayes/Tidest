@@ -38,6 +38,43 @@ final class PinnedWindowLaunchServiceTests: XCTestCase {
         XCTAssertNil(PinnedAppleEvents.windowIdentifier(in: document))
     }
 
+    func testFinderAndTerminalReferencesKeepNumericIDsAcrossRetries() throws {
+        let cases: [(String, NSAppleEventDescriptor)] = [
+            ("brow", numericDescriptor(type: typeUInt32, value: UInt32(88))),
+            ("cwin", numericDescriptor(type: typeSInt64, value: Int64(88)))
+        ]
+        let expected = try PinnedAppleWindowID(NSAppleEventDescriptor(int32: 88))
+        for (kind, descriptor) in cases {
+            XCTAssertEqual(try PinnedAppleWindowID(descriptor), expected)
+            let window = PinnedAppleEvents.object(kind, form: "ID  ", data: descriptor)
+            let reference = kind == "cwin" ? PinnedAppleEvents.element("ttab", at: 1, of: window) : window
+            XCTAssertEqual(PinnedAppleEvents.windowIdentifier(in: reference), expected)
+
+            let retry = try PinnedAppleEvents.unflattenReference(PinnedAppleEvents.flattenReference(reference))
+            XCTAssertEqual(PinnedAppleEvents.windowIdentifier(in: retry), expected)
+            // A retry compares the created reference with IDs returned by a
+            // separate query. Numeric encodings must identify the same window.
+            XCTAssertEqual(Set([try PinnedAppleWindowID(descriptor), expected]).count, 1)
+            XCTAssertEqual(try PinnedAppleWindowID(expected.descriptor), expected)
+        }
+    }
+
+    func testNumericWindowIDsPreserveSystemBitsAndRejectOutOfRangeValues() throws {
+        for descriptor in [numericDescriptor(type: typeUInt32, value: UInt32.max),
+                           numericDescriptor(type: typeSInt64, value: Int64(UInt32.max))] {
+            let identifier = try PinnedAppleWindowID(descriptor)
+            XCTAssertEqual(identifier, .number(-1))
+            XCTAssertEqual(try PinnedAppleWindowID(identifier.descriptor), identifier)
+        }
+        for value in [Int64(UInt32.max) + 1, Int64(Int32.min) - 1] {
+            XCTAssertThrowsError(try PinnedAppleWindowID(numericDescriptor(type: typeSInt64, value: value))) {
+                XCTAssertEqual($0 as? PinnedWindowLaunchError, .windowUnavailable)
+            }
+        }
+        // Chrome's textual IDs remain textual even when they contain digits.
+        XCTAssertEqual(try PinnedAppleWindowID(NSAppleEventDescriptor(string: "88")), .text("88"))
+    }
+
     func testCreatedReferenceCanRetryAfterFlatteningAcrossBackgroundTasks() throws {
         let window = PinnedAppleEvents.object("cwin", form: "ID  ", data: NSAppleEventDescriptor(int32: 123))
         let tab = PinnedAppleEvents.element("ttab", at: 2, of: window)
@@ -216,6 +253,10 @@ final class PinnedWindowLaunchServiceTests: XCTestCase {
     private func shell(_ pid: Int32, parent: Int32, group: UInt32, foreground: UInt32) -> PinnedTerminalProcess {
         PinnedTerminalProcess(pid: pid, parentPID: parent, processGroupID: group,
                               foregroundGroupID: foreground, deviceID: 7, isShell: true)
+    }
+
+    private func numericDescriptor<T>(type: DescType, value: T) -> NSAppleEventDescriptor {
+        withUnsafeBytes(of: value) { NSAppleEventDescriptor(descriptorType: type, data: Data($0))! }
     }
     private func process(_ pid: Int32, parent: Int32, group: UInt32, foreground: UInt32) -> PinnedTerminalProcess {
         PinnedTerminalProcess(pid: pid, parentPID: parent, processGroupID: group,
