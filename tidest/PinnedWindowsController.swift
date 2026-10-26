@@ -1818,7 +1818,7 @@ final class PinnedWindowsController {
     }
 
     #if DEBUG
-    func showPreview(count: Int = 5) {
+    func showPreview(count: Int = 5, withThumbnails: Bool = false) {
         previewMode = true
         isEnabled = true
         installPointerMonitoring()
@@ -1836,8 +1836,42 @@ final class PinnedWindowsController {
             return PinnedWindowEntry(window: window)
         }
         thumbnails.removeAll()
+        if withThumbnails {
+            for entry in windows { thumbnails[entry.id] = previewThumbnail(for: entry) }
+        }
         confirmedClosedIDs.removeAll()
         if let screen = screen(at: NSEvent.mouseLocation) { expand(on: screen) }
+    }
+
+    private func previewThumbnail(for entry: PinnedWindowEntry) -> NSImage {
+        let ratio = entry.frame.width / max(1, entry.frame.height)
+        let size = CGSize(width: 480, height: 480 / ratio)
+        let title = entry.title
+        return NSImage(size: size, flipped: false) { rect in
+            NSColor.windowBackgroundColor.setFill()
+            rect.fill()
+            NSColor.systemIndigo.withAlphaComponent(0.12).setFill()
+            rect.insetBy(dx: 12, dy: 12).fill()
+            NSColor.controlBackgroundColor.setFill()
+            CGRect(x: 0, y: rect.height - 40, width: rect.width, height: 40).fill()
+            for (index, color) in [NSColor.systemRed, .systemYellow, .systemGreen].enumerated() {
+                color.setFill()
+                NSBezierPath(ovalIn: CGRect(x: 16 + index * 20, y: Int(rect.height) - 26,
+                                            width: 10, height: 10)).fill()
+            }
+            (title as NSString).draw(at: CGPoint(x: 24, y: rect.height - 100),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 26, weight: .semibold),
+                                 .foregroundColor: NSColor.labelColor])
+            NSColor.systemIndigo.withAlphaComponent(0.20).setFill()
+            NSBezierPath(roundedRect: CGRect(x: 24, y: 24, width: 100, height: rect.height - 140),
+                         xRadius: 12, yRadius: 12).fill()
+            for index in 0..<3 {
+                NSColor.systemIndigo.withAlphaComponent(0.10).setFill()
+                NSBezierPath(roundedRect: CGRect(x: 140, y: rect.height - 150 - CGFloat(index) * 55,
+                    width: rect.width - 164, height: 38), xRadius: 8, yRadius: 8).fill()
+            }
+            return true
+        }
     }
     #endif
 

@@ -63,6 +63,21 @@ final class PinnedWindowsView: NSView {
     private var animationID = UUID()
     private var accessibilityObserver: AnyCancellable?
     private var systemColorObserver: AnyCancellable?
+    private var displayedMode: PinnedDisplayMode?
+    private var modeAnimation: CADisplayLink?
+    private var modeProgress: CGFloat = 1
+    private var modeTransition: DisplayModeTransition?
+
+    private struct DisplayModeTransition {
+        let start: CFTimeInterval
+        let reducesMotion: Bool
+        let frames: [UUID: CGRect]
+        let documentHeight: CGFloat
+        let anchor: (id: UUID, fraction: CGFloat)?
+        var scrollAdjustment: CGFloat = 0
+        var lastScrollOffset: CGFloat
+        var duration: CFTimeInterval { reducesMotion ? 0.12 : 0.55 }
+    }
     #if DEBUG
     private static let diagnostics = Logger(subsystem: "com.mixbayes.tidest", category: "WindowDock")
     #endif
@@ -114,12 +129,13 @@ final class PinnedWindowsView: NSView {
         shelfContent.addSubview(messageLabel)
         shelfContent.addSubview(removalHint)
         displayModeControl.segmentCount = 2
+        displayModeControl.controlSize = .large
         displayModeControl.trackingMode = .selectOne
         displayModeControl.segmentStyle = .rounded
         if #available(macOS 26.0, *) { displayModeControl.borderShape = .capsule }
         for segment in 0..<2 {
             displayModeControl.setLabel("", forSegment: segment)
-            displayModeControl.setWidth(34, forSegment: segment)
+            displayModeControl.setWidth(44, forSegment: segment)
             displayModeControl.setImageScaling(.scaleProportionallyDown, forSegment: segment)
         }
         displayModeControl.target = self
@@ -137,6 +153,7 @@ final class PinnedWindowsView: NSView {
         scroll.horizontalScrollElasticity = .none
         scroll.verticalScrollElasticity = .none
         scroll.documentView = document
+        document.onAnimationFrame = { [weak self] link in self?.advanceDisplayModeTransition(link) }
         shelfContent.addSubview(scroll)
         // The empty instruction and its decorative icon stay above the scroll view.
         shelfContent.addSubview(emptyLabel, positioned: .above, relativeTo: scroll)
@@ -162,6 +179,8 @@ final class PinnedWindowsView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    deinit { modeAnimation?.invalidate() }
+
     func update(windows: [PinnedWindowEntry], thumbnails: [UUID: NSImage], settings: AppSettings,
                 draggedID: UUID?, highlightedID: UUID?, insertionIndex: Int?,
                 showsRemovalHint: Bool, removingItem: Bool, message: String?,
@@ -169,6 +188,16 @@ final class PinnedWindowsView: NSView {
                 insertionEntry: PinnedWindowEntry? = nil, insertionThumbnail: NSImage? = nil,
                 busyIDs: Set<UUID> = []) {
         let previousIDs = self.windows.map(\.id)
+        let incomingIDs = windows.map(\.id)
+        if modeTransition != nil, previousIDs != incomingIDs || freezeRowHeights || carryingWindow {
+            finishDisplayModeTransition()
+        }
+        if let displayedMode, displayedMode != settings.pinnedDisplayMode,
+           previousIDs == incomingIDs, !rows.isEmpty, isShown, window?.isVisible == true,
+           !freezeRowHeights, !carryingWindow {
+            beginDisplayModeTransition()
+        }
+        displayedMode = settings.pinnedDisplayMode
         if freezeRowHeights, !self.freezeRowHeights {
             for (window, row) in zip(self.windows, rows) where row.frame.height > 0 {
                 rowHeights[window.id] = row.frame.height
@@ -332,8 +361,15 @@ final class PinnedWindowsView: NSView {
             rowHeights[window.id] = height
             // A released item appears in its reserved slot; its old, hidden
             // position is not the start of another trip through the list.
-            setReflowFrame(CGRect(x: 2, y: y, width: rowWidth, height: height),
-                           for: row, animated: animated && !wasHidden)
+            let destination = CGRect(x: 2, y: y, width: rowWidth, height: height)
+            if let transition = modeTransition, let source = transition.frames[window.id] {
+                let progress = transition.reducesMotion ? 1 : pinnedModeEase(modeProgress)
+                row.frame = pinnedModeFrame(from: source, to: destination, progress: progress)
+                row.setDisplayModeTransition(progress: modeProgress, reducesMotion: transition.reducesMotion)
+                row.layoutSubtreeIfNeeded()
+            } else {
+                setReflowFrame(destination, for: row, animated: animated && !wasHidden)
+            }
             y += height + Self.rowSpacing
             candidateIndex += 1
         }
@@ -347,9 +383,29 @@ final class PinnedWindowsView: NSView {
         insertionPlaceholder.isHidden = insertionIndex == nil
         let contentHeight = candidateIndex == 0 && !reservesSpace ? 0
             : y - Self.rowSpacing + Self.documentInset
-        document.frame = CGRect(x: 0, y: 0, width: width, height: max(contentHeight, scroll.contentSize.height))
+        let targetHeight = max(contentHeight, scroll.contentSize.height)
+        let documentHeight: CGFloat
+        if let transition = modeTransition, !transition.reducesMotion {
+            documentHeight = transition.documentHeight
+                + (targetHeight - transition.documentHeight) * pinnedModeEase(modeProgress)
+        } else { documentHeight = targetHeight }
+        document.frame = CGRect(x: 0, y: 0, width: width, height: max(documentHeight, scroll.contentSize.height))
         let maximumOffset = max(0, document.bounds.height - scroll.contentSize.height)
-        scroll.contentView.scroll(to: CGPoint(x: 0, y: min(maximumOffset, max(0, previousOffset.y))))
+        var desiredOffset = previousOffset.y
+        if var transition = modeTransition {
+            // Keep the same window at the top of the viewport as its height
+            // changes. A real wheel/trackpad scroll still adds to that position.
+            transition.scrollAdjustment += previousOffset.y - transition.lastScrollOffset
+            if let anchor = transition.anchor,
+               let index = windows.firstIndex(where: { $0.id == anchor.id }) {
+                desiredOffset = rows[index].frame.minY + rows[index].frame.height * anchor.fraction
+                    + transition.scrollAdjustment
+            }
+            desiredOffset = min(maximumOffset, max(0, desiredOffset))
+            transition.lastScrollOffset = desiredOffset
+            modeTransition = transition
+        }
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: min(maximumOffset, max(0, desiredOffset))))
         scroll.reflectScrolledClipView(scroll.contentView)
         let emptyWidth = max(0, size.width - 48)
         emptyLabel.preferredMaxLayoutWidth = emptyWidth
@@ -396,8 +452,60 @@ final class PinnedWindowsView: NSView {
         rows.forEach { $0.layer?.removeAnimation(forKey: Self.reflowAnimationKey) }
     }
 
+    private func beginDisplayModeTransition() {
+        let offset = scroll.contentView.bounds.minY
+        let frames = Dictionary(uniqueKeysWithValues: zip(windows, rows).map { entry, row in
+            let frame = row.layer?.animation(forKey: Self.reflowAnimationKey) == nil
+                ? row.frame : (row.layer?.presentation()?.frame ?? row.frame)
+            return (entry.id, frame)
+        })
+        let firstVisible = zip(windows, rows).first { $0.1.frame.maxY > offset }
+        let anchor = firstVisible.map { entry, row in
+            (id: entry.id, fraction: (offset - row.frame.minY) / max(1, row.frame.height))
+        }
+        rows.forEach { $0.beginDisplayModeTransition() }
+        finishReflowAnimations()
+        modeTransition = DisplayModeTransition(start: CACurrentMediaTime(),
+            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            frames: frames, documentHeight: document.frame.height, anchor: anchor, lastScrollOffset: offset)
+        modeProgress = 0
+        if modeAnimation == nil {
+            let link = displayLink(target: document, selector: #selector(PinnedWindowDocumentView.animationFrame(_:)))
+            modeAnimation = link
+            link.add(to: .main, forMode: .common)
+        }
+    }
+
+    private func advanceDisplayModeTransition(_ link: CADisplayLink) {
+        guard let transition = modeTransition else { return }
+        modeProgress = CGFloat(min(1, max(0, (link.targetTimestamp - transition.start) / transition.duration)))
+        if modeProgress >= 1 {
+            finishDisplayModeTransition()
+        } else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            CATransaction.commit()
+        }
+    }
+
+    private func finishDisplayModeTransition() {
+        modeAnimation?.invalidate()
+        modeAnimation = nil
+        guard modeTransition != nil else { return }
+        modeProgress = 1
+        // Complete the anchored layout before discarding the transition, so a
+        // final scroll-range clamp cannot make the list jump on the last frame.
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        rows.forEach { $0.finishDisplayModeTransition() }
+        modeTransition = nil
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { finishDisplayModeTransition() }
         updateEmptyIconAnimation()
     }
 
@@ -407,7 +515,11 @@ final class PinnedWindowsView: NSView {
     }
 
     private func updateAppearance() {
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { finishReflowAnimations() }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            finishReflowAnimations()
+            if modeTransition?.reducesMotion == false { finishDisplayModeTransition() }
+        }
+        displayModeControl.updateAppearance()
         if #available(macOS 26.0, *), let container = glassContainer as? NSGlassEffectContainerView {
             container.spacing = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 0 : 56
@@ -449,7 +561,10 @@ final class PinnedWindowsView: NSView {
     func setShown(_ shown: Bool, animated: Bool, completion: (() -> Void)? = nil) {
         logVisibilityDiagnostic("visibility-request shown=\(shown) animated=\(animated)")
         isShown = shown
-        if !shown { finishReflowAnimations() }
+        if !shown {
+            finishDisplayModeTransition()
+            finishReflowAnimations()
+        }
         updateEmptyIconAnimation()
         let token = UUID()
         animationID = token
@@ -813,7 +928,28 @@ private final class PinnedDropIconView: NSView {
 }
 
 private final class PinnedWindowDocumentView: NSView {
+    var onAnimationFrame: ((CADisplayLink) -> Void)?
     override var isFlipped: Bool { true }
+    @objc func animationFrame(_ link: CADisplayLink) { onAnimationFrame?(link) }
+}
+
+private func pinnedModeEase(_ progress: CGFloat) -> CGFloat {
+    let t = min(1, max(0, progress))
+    return 1 - pow(1 - t, 3)
+}
+
+private func pinnedModeBlend(_ progress: CGFloat) -> CGFloat {
+    let t = min(1, max(0, progress))
+    // Zero velocity and acceleration at both ends keep the handoff from
+    // suddenly starting or ending as the two very different images overlap.
+    return t * t * t * (t * (t * 6 - 15) + 10)
+}
+
+private func pinnedModeFrame(from: CGRect, to: CGRect, progress: CGFloat) -> CGRect {
+    CGRect(x: from.minX + (to.minX - from.minX) * progress,
+           y: from.minY + (to.minY - from.minY) * progress,
+           width: from.width + (to.width - from.width) * progress,
+           height: from.height + (to.height - from.height) * progress)
 }
 
 @MainActor
@@ -850,6 +986,17 @@ final class PinnedWindowCardView: NSView {
     private var hovered = false
     private var hoverTrackingArea: NSTrackingArea?
     private var closedStatus = ""
+    private struct DisplayModeContent {
+        let frames: [CGRect]
+        let opacities: [CGFloat]
+        let previewFrame: CGRect
+        let previewOpacity: CGFloat
+        let thumbnail: NSImage?
+    }
+    private var modeSource: DisplayModeContent?
+    private var modeProgress: CGFloat = 1
+    private var modeReducesMotion = false
+    private var movingContents: [NSView] { [icon, titleLabel, closedIndicator, closedLabel, retainButton] }
     private var captionHeight: CGFloat {
         showsCaption ? (closedStatus.isEmpty ? 24 : 40) : 0
     }
@@ -897,7 +1044,9 @@ final class PinnedWindowCardView: NSView {
         retainButton.target = self
         retainButton.action = #selector(toggleRetention)
         retainButton.isHidden = true
-        for view in [preview, icon, titleLabel, closedIndicator, closedLabel] {
+        // The screenshot passes over the app icon before fading away. Keep it
+        // above the icon, while the caption and native buttons stay on top.
+        for view in [icon, preview, titleLabel, closedIndicator, closedLabel] {
             view.setAccessibilityElement(false)
             addSubview(view)
         }
@@ -965,7 +1114,7 @@ final class PinnedWindowCardView: NSView {
         hasThumbnail = thumbnail != nil
         self.highlighted = highlighted
         self.dragging = dragging
-        preview.image = thumbnail
+        preview.image = thumbnail ?? modeSource?.thumbnail
         self.icon.image = icon
         titleLabel.stringValue = title.isEmpty ? applicationName : title
         // Keep each tooltip on its own control. A tooltip on the whole card
@@ -994,6 +1143,37 @@ final class PinnedWindowCardView: NSView {
         return imageHeight + captionHeight + inset * 2
     }
 
+    func beginDisplayModeTransition() {
+        layoutSubtreeIfNeeded()
+        modeSource = DisplayModeContent(frames: movingContents.map(\.frame),
+            opacities: movingContents.map { $0.isHidden ? 0 : $0.alphaValue },
+            previewFrame: preview.isHidden ? thumbnailFrame(in: icon.frame) : preview.frame,
+            previewOpacity: preview.isHidden ? 0 : preview.alphaValue, thumbnail: preview.image)
+    }
+
+    func setDisplayModeTransition(progress: CGFloat, reducesMotion: Bool) {
+        modeProgress = progress
+        modeReducesMotion = reducesMotion
+        needsLayout = true
+    }
+
+    func finishDisplayModeTransition() {
+        modeSource = nil
+        modeProgress = 1
+        if !hasThumbnail { preview.image = nil }
+        preview.alphaValue = 1
+        movingContents.forEach { $0.alphaValue = 1 }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    private func thumbnailFrame(in iconFrame: CGRect) -> CGRect {
+        let height = min(iconFrame.height, iconFrame.width / ratio)
+        let width = height * ratio
+        return CGRect(x: iconFrame.midX - width / 2, y: iconFrame.midY - height / 2,
+                      width: width, height: height)
+    }
+
     override func layout() {
         super.layout()
         preview.isHidden = !hasThumbnail
@@ -1006,10 +1186,13 @@ final class PinnedWindowCardView: NSView {
         let buttonWidth: CGFloat = showsCaption && showsRetention ? 24 : 0
         let indicatorSpacing: CGFloat = 5
         let inset = showsCaption ? Self.cardInset : 0
+        // Calculate destinations at the final card height, then interpolate the
+        // individual contents. Scaling the whole row would also squash text.
+        let layoutHeight = modeSource == nil ? bounds.height : preferredHeight(for: bounds.width)
         // Status has its own second line, leaving long window titles readable.
         let textRight = max(0, bounds.width - inset - buttonWidth - (buttonWidth > 0 ? 5 : 1))
         if hasThumbnail {
-            let viewportHeight = max(0, bounds.height - captionHeight - inset * 2)
+            let viewportHeight = max(0, layoutHeight - captionHeight - inset * 2)
             let width = min(max(0, bounds.width - inset * 2), viewportHeight * ratio)
             let height = width / ratio
             let imageRect = CGRect(x: (bounds.width - width) / 2, y: inset + (viewportHeight - height) / 2,
@@ -1028,15 +1211,15 @@ final class PinnedWindowCardView: NSView {
             // With no screenshot there is no empty screenshot-sized card.
             // The app icon and title form one compact, readable row instead.
             icon.isHidden = false
-            let iconSize = min(CGFloat(showsCaption ? 28 : 40), max(0, min(bounds.width, bounds.height)))
+            let iconSize = min(CGFloat(showsCaption ? 28 : 40), max(0, min(bounds.width, layoutHeight)))
             icon.frame = CGRect(x: showsCaption ? inset + 2 : (bounds.width - iconSize) / 2,
-                                y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
+                                y: (layoutHeight - iconSize) / 2, width: iconSize, height: iconSize)
             // Centre the text that is actually visible, rather than always
             // reserving a second line for a window that is still open.
             let textHeight: CGFloat = closedStatus.isEmpty ? 16 : 31
-            let titleY = max(0, (bounds.height - textHeight) / 2)
+            let titleY = max(0, (layoutHeight - textHeight) / 2)
             titleLabel.frame = CGRect(x: inset + 39, y: titleY, width: max(0, textRight - inset - 39), height: 16)
-            retainButton.frame = CGRect(x: max(0, bounds.width - inset - 24), y: (bounds.height - 24) / 2,
+            retainButton.frame = CGRect(x: max(0, bounds.width - inset - 24), y: (layoutHeight - 24) / 2,
                                         width: 24, height: 24)
         }
         let diameter = Self.closedIndicatorDiameter
@@ -1050,6 +1233,41 @@ final class PinnedWindowCardView: NSView {
         closedIndicator.frame = CGRect(x: closedLabel.frame.maxX + indicatorSpacing,
                                        y: closedLabel.frame.midY - diameter / 2,
                                        width: diameter, height: diameter)
+        if let source = modeSource {
+            let targetPreview = preview.frame
+            let targetIcon = icon.frame
+            let progress = modeReducesMotion ? 1 : pinnedModeEase(modeProgress)
+            for (index, view) in movingContents.enumerated() {
+                let targetOpacity: CGFloat = view.isHidden ? 0 : 1
+                view.frame = pinnedModeFrame(from: source.frames[index], to: view.frame, progress: progress)
+                view.isHidden = source.opacities[index] == 0 && targetOpacity == 0
+                view.alphaValue = source.opacities[index] + (targetOpacity - source.opacities[index]) * progress
+            }
+            if preview.image != nil {
+                preview.isHidden = false
+                if hasThumbnail {
+                    preview.frame = pinnedModeFrame(from: source.previewFrame, to: targetPreview, progress: progress)
+                    let fade = pinnedModeEase(modeReducesMotion ? modeProgress : modeProgress / 0.25)
+                    preview.alphaValue = source.previewOpacity + (1 - source.previewOpacity) * fade
+                } else {
+                    let destination = thumbnailFrame(in: targetIcon)
+                    preview.frame = pinnedModeFrame(from: source.previewFrame, to: destination,
+                        progress: modeReducesMotion ? 1 : pinnedModeEase(modeProgress / 0.75))
+                    // Share the last half of the 0.55-second transition. The
+                    // icon first leaves its caption position, then gradually
+                    // appears under the shrinking screenshot at the same center.
+                    let approach = modeReducesMotion ? 1 : pinnedModeBlend(modeProgress / 0.5)
+                    let fade = pinnedModeBlend(modeReducesMotion ? modeProgress : (modeProgress - 0.5) / 0.5)
+                    preview.alphaValue = source.previewOpacity * (1 - fade)
+                    let uncovered = 1 - source.previewOpacity
+                    icon.alphaValue = source.opacities[0] + (uncovered - source.opacities[0]) * approach
+                        + source.previewOpacity * fade
+                    icon.setFrameOrigin(CGPoint(
+                        x: icon.frame.minX + (preview.frame.midX - icon.frame.midX) * approach,
+                        y: icon.frame.minY + (preview.frame.midY - icon.frame.midY) * approach))
+                }
+            }
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1199,12 +1417,6 @@ private final class PinnedOpenButton: NSButton {
         ring.stroke()
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
-private final class PinnedDisplayModeControl: NSSegmentedControl {
-    override var acceptsFirstResponder: Bool { isEnabled }
-    override var needsPanelToBecomeKey: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 

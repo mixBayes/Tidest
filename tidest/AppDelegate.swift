@@ -74,7 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if arguments.contains("--ui-preview-pinned") {
             let count = arguments.first { $0.hasPrefix("--ui-preview-count=") }
                 .flatMap { Int($0.dropFirst("--ui-preview-count=".count)) } ?? 5
-            pinnedWindows.showPreview(count: count)
+            pinnedWindows.showPreview(count: count,
+                withThumbnails: arguments.contains("--ui-preview-thumbnails"))
             return
         }
         if arguments.contains("--ui-preview-accessibility") {

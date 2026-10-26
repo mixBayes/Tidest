@@ -63,6 +63,41 @@ final class PinnedRetentionUITests: XCTestCase {
     }
 
     @MainActor
+    func testDisplayModeKeepsNativeAccessibleSelectionWhileSwitching() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-pinned", "--ui-preview-thumbnails", "--ui-preview-count=3", "--ui-preview-language=zh-Hans"]
+        app.launch()
+        defer { app.terminate() }
+        app.activate()
+        let control = app.descendants(matching: .any)["pinnedDisplayMode"]
+        // The shelf closes after the pointer leaves. Reopen it through its
+        // normal right-edge hover before resolving the transient controls.
+        app.menuBars.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9995, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: 300)).hover()
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        // Enter the normal keyboard interaction before testing transitions, so
+        // unrelated movement of the desktop pointer cannot collapse the shelf.
+        app.descendants(matching: .any)["pinnedShelfHeader"].click()
+        let thumbnail = control.radioButtons["切换为缩略图"]
+        let iconsAndTitle = control.radioButtons["切换为图标 + 标题"]
+        XCTAssertEqual(String(describing: thumbnail.value ?? ""), "1")
+        saveScreenshot(app, name: "显示模式 · 原生液态玻璃与图标折射")
+        let left = control.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+        let right = control.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+        right.click()
+        XCTAssertEqual(String(describing: iconsAndTitle.value ?? ""), "1")
+        XCTAssertEqual(String(describing: thumbnail.value ?? ""), "0")
+        saveScreenshot(app, name: "显示模式 · 切换到图标与标题")
+        left.click()
+        right.click()
+        left.click()
+        XCTAssertTrue(control.isEnabled)
+        XCTAssertEqual(String(describing: thumbnail.value ?? ""), "1")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "pinnedOpen-")).count, 3)
+        saveScreenshot(app, name: "显示模式 · 连续切换后回到缩略图")
+    }
+
+    @MainActor
     func testHeaderEntersKeyboardLoopAndEscapeClosesShelf() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-pinned", "--ui-preview-count=3", "--ui-preview-language=zh-Hans"]
