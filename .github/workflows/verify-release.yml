@@ -1,0 +1,46 @@
+name: Verify release
+run-name: Verify release ${{ inputs.tag }}
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published version tag (for example, v2.0.4)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  attestations: read
+
+jobs:
+  verify:
+    if: github.repository == 'mixBayes/Tidest'
+    runs-on: macos-15
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out verification tools and version tags
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check release verification failure handling
+        run: python3 scripts/tests/test_verify_release.py
+
+      - name: Download and verify the published files
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          download_dir="$(mktemp -d "$RUNNER_TEMP/tidest-verify.XXXXXX")"
+          gh release download "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --dir "$download_dir"
+          bash scripts/verify-release.sh "$RELEASE_TAG" "$download_dir"
+          xcrun stapler validate "$download_dir/Tidest-${RELEASE_TAG#v}.dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 \
+            "$download_dir/Tidest-${RELEASE_TAG#v}.dmg"
+          echo "Verified [Tidest ${RELEASE_TAG#v}](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG): release proof, all four assets, build provenance and Apple notarization." >> "$GITHUB_STEP_SUMMARY"

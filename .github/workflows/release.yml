@@ -140,9 +140,7 @@ jobs:
       - name: Publish and verify the immutable release
         run: |
           gh release edit "$RELEASE_TAG" --draft=false --latest
-          gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"
-          gh release verify-asset "$RELEASE_TAG" \
-            "$RELEASE_WORK_DIR/Tidest-${RELEASE_TAG#v}.dmg" -R "$GITHUB_REPOSITORY"
+          bash scripts/verify-release.sh "$RELEASE_TAG" "$RELEASE_WORK_DIR"
           {
             echo "Published [Tidest ${RELEASE_TAG#v}](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG)."
             echo
