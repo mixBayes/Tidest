@@ -159,9 +159,13 @@ spctl --assess --type execute --verbose=4 /Applications/tidest.app
 
 在 **Actions → Verify release → Run workflow** 中选择 **main**，填写已发布的标签（例如 `v2.0.4`），运行验证。
 
-这个流程会下载原始附件，核对发布证明、四个附件的文件指纹、构建来源对应的标签和源码提交，以及 DMG 的 Apple 公证。它只有读取权限，不使用签名凭据，不会重新打包、发布、覆盖附件或移动标签，也不受当前应用版本号限制。
+这个流程会下载原始附件，核对发布证明、四个附件的文件指纹、构建来源对应的标签和源码提交，以及 DMG 的 Apple 公证。默认只有读取权限，不使用签名凭据，不会重新打包、发布、覆盖附件或移动标签，也不受当前应用版本号限制。
 
-验证结果记录在这次 **Verify release** 运行中。以前失败的发布运行仍会保留原来的红色状态，独立验证不会改写历史。
+验证结果记录在这次 **Verify release** 运行中。以前失败的发布工作流仍会保留原来的红色状态。
+
+如果安装包已正常发布，但部署页面仍因之前的验证失败显示红色，可以在运行时勾选 **Mark the matching release deployment successful after verification**。这个选项默认关闭，且只能从 main 使用。全部验证通过后，单独的状态同步任务才会获得部署状态的写入权限；它要求已有部署的标签、源码提交和 release 环境全部一致，且只有一条匹配记录，才追加成功状态并关联本次验证记录。缺少匹配记录或存在多条匹配记录时不会修改状态。
+
+部署页面将显示最新的成功状态，原始失败记录保留。其他版本的部署状态、发布附件和版本标签都不会因此改变。
 
 ## 失败后处理
 
@@ -178,6 +182,7 @@ spctl --assess --type execute --verbose=4 /Applications/tidest.app
 
 ~~~sh
 python3 scripts/tests/test_verify_release.py
+python3 scripts/tests/test_sync_release_deployment.py
 ~~~
 
 不需要证书即可验证版本号、工具链和通用版本编译：
