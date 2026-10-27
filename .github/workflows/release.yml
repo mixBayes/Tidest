@@ -61,6 +61,14 @@ jobs:
       - name: Build Apple silicon and Intel app
         run: bash scripts/release.sh build "$RELEASE_TAG"
 
+      - name: Set up Python for DMG packaging
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Prepare the DMG layout tools
+        run: bash scripts/release.sh prepare-dmg "$RELEASE_TAG"
+
       - name: Sign, notarize and verify the app and DMG
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}

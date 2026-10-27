@@ -18,7 +18,7 @@ Tidest 的正式安装包由 GitHub Actions 从版本标签对应的公开源码
 
 在此环境的 **Deployment branches and tags** 中选择 **Selected branches and tags**，添加一个类型为 **Tag**、名称为 `v*` 的规则。签名和公证凭据只在发布版本标签时使用。
 
-流程使用的 Actions 均来自 GitHub 官方，并固定到完整提交 SHA。如果仓库限制了可使用的 Actions，需要允许 `actions/checkout`、`actions/attest` 和 `actions/upload-artifact`。
+流程使用的 Actions 均来自 GitHub 官方，并固定到完整提交 SHA。如果仓库限制了可使用的 Actions，需要允许 `actions/checkout`、`actions/setup-python`、`actions/attest` 和 `actions/upload-artifact`。
 
 ### 3. 添加一个环境变量
 
@@ -78,7 +78,7 @@ git push origin v2.0.1
 1. 核对标签、源码提交、版本号和工具链，拒绝替换已有版本。
 2. 使用 **Xcode 27.0 (27A266a)**，构建包含 arm64 和 x86_64 的应用。
 3. 签名应用，提交 ZIP 给 Apple，等待通过后将公证票据附到应用上。
-4. 将该应用和“应用程序”快捷方式装入 DMG；签名、公证并附上 DMG 票据。
+4. 将该应用和“应用程序”快捷方式装入 DMG，保存大图标和拖动箭头布局；签名、公证并附上 DMG 票据。
 5. 挂载最终 DMG，核对内部应用的签名和票据。
 6. 生成文件指纹和构建信息，再用 GitHub 构建来源证明关联最终文件。
 7. 创建草稿，上传全部附件，再下载一次验证文件内容和构建证明。
@@ -190,10 +190,15 @@ python3 scripts/tests/test_sync_release_deployment.py
 ~~~sh
 bash scripts/release.sh check v2.0.1
 RELEASE_WORK_DIR=/tmp/tidest-release-check bash scripts/release.sh build v2.0.1
+RELEASE_WORK_DIR=/tmp/tidest-release-check bash scripts/release.sh prepare-dmg v2.0.1
 RELEASE_WORK_DIR=/tmp/tidest-release-check bash scripts/release.sh smoke-dmg v2.0.1
 ~~~
 
 每次使用一个新的输出目录。smoke-dmg 仅检查本地打包，生成的包未经过正式签名、公证或构建证明，不能作为正式安装包分发。
+
+`prepare-dmg` 使用 Python 3.10 或更新版本，在输出目录内安装固定版本、校验文件指纹的 [dmgbuild](https://dmgbuild.readthedocs.io/) 及其依赖。如默认的 `python3` 版本较旧，可用 `PYTHON_BIN=/path/to/python3` 指定。正式发布会在载入签名凭据前完成这一步。
+
+DMG 窗口为 680 × 460，图标大小为 128，左侧为 Tidest，右侧为“应用程序”快捷方式。中间的箭头使用 `scripts/dmg/background.png` 和 `background@2x.png`，由 dmgbuild 合并为支持 Retina 的背景。`background.svg` 是背景源文件；调整背景后应同时重新导出这两种尺寸的 PNG。窗口布局记录在 `scripts/dmg/settings.py`，打包时不依赖 Finder 或桌面自动化。
 
 ## 官方参考
 

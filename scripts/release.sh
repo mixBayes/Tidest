@@ -75,14 +75,18 @@ build_app() {
     check_app
 }
 
+prepare_dmg() {
+    "${PYTHON_BIN:-python3}" -m venv "$WORK/dmg-tools"
+    "$WORK/dmg-tools/bin/python" -m pip install --require-hashes --only-binary=:all: \
+        -r "$ROOT/scripts/dmg/requirements.txt"
+}
+
 create_dmg() {
-    local staging
-    staging="$WORK/dmg-contents"
-    [[ ! -e "$staging" && ! -e "$DMG" ]] || fail "DMG output already exists; use a fresh RELEASE_WORK_DIR."
-    mkdir -m 755 "$staging"
-    /usr/bin/ditto "$APP" "$staging/tidest.app"
-    ln -s /Applications "$staging/Applications"
-    /usr/bin/hdiutil create -volname Tidest -srcfolder "$staging" -fs HFS+ -format UDZO "$DMG"
+    [[ ! -e "$DMG" ]] || fail "DMG output already exists; use a fresh RELEASE_WORK_DIR."
+    [[ -x "$WORK/dmg-tools/bin/dmgbuild" ]] || fail "Run prepare-dmg in this RELEASE_WORK_DIR before packaging."
+    # Store the layout in the image itself; packaging does not need a running Finder.
+    "$WORK/dmg-tools/bin/dmgbuild" -s "$ROOT/scripts/dmg/settings.py" \
+        -D app="$APP" -D background="$ROOT/scripts/dmg/background.png" Tidest "$DMG"
 }
 
 package_app() {
@@ -216,7 +220,8 @@ PY
 case "$COMMAND" in
     check) check_toolchain; printf 'Release version: %s\n' "$VERSION" ;;
     build) build_app ;;
+    prepare-dmg) prepare_dmg ;;
     package) package_app ;;
     smoke-dmg) check_app; create_dmg ;;
-    *) fail "Usage: bash scripts/release.sh {check|build|package|smoke-dmg} [vX.Y.Z]" ;;
+    *) fail "Usage: bash scripts/release.sh {check|build|prepare-dmg|package|smoke-dmg} [vX.Y.Z]" ;;
 esac
