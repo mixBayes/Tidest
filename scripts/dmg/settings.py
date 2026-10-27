@@ -4,7 +4,7 @@ format = "UDZO"
 filesystem = "HFS+"
 files = [defines["app"]]
 symlinks = {"Applications": "/Applications"}
-hide_extensions = ["tidest.app"]
+# Do not set Finder flags on the app after signing; Finder already hides .app.
 background = defines["background"]
 
 window_rect = ((200, 200), (680, 460))
