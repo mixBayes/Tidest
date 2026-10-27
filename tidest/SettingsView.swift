@@ -3,6 +3,8 @@ import SwiftUI
 @MainActor
 struct SettingsView: View {
     static let windowSize = CGSize(width: 460, height: 680)
+    // Grouped macOS forms already inset each row by 10pt.
+    private static let sectionPadding: CGFloat = 2
 
     private enum SettingsTab { case windows, general }
     private enum ShortcutField { case switching, layout, pinning }
@@ -44,11 +46,21 @@ struct SettingsView: View {
                 case .windows:
                     Form {
                         Section {
-                            displaySettings
-                            shortcutSettings
+                            VStack(alignment: .leading, spacing: 12) {
+                                displaySettings
+                                Divider()
+                                shortcutSettings
+                            }
+                            .padding(Self.sectionPadding)
                         }
-                        Section { quickLayoutSettings }
-                        Section { pinningSettings }
+                        Section {
+                            quickLayoutSettings
+                                .padding(Self.sectionPadding)
+                        }
+                        Section {
+                            pinningSettings
+                                .padding(Self.sectionPadding)
+                        }
                     }
                     .accessibilityIdentifier("windowSettingsPanel")
                 case .general:
@@ -110,7 +122,7 @@ struct SettingsView: View {
     }
 
     private var displaySettings: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             settingTitle("窗口切换", icon: "rectangle.3.group", iconColor: .blue)
             HStack(spacing: 12) {
                 displayModeOption(.carousel, imageName: "ModeCarousel")
@@ -137,7 +149,7 @@ struct SettingsView: View {
     }
 
     private var shortcutSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Text(settings.text("窗口切换快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
@@ -167,11 +179,10 @@ struct SettingsView: View {
                     .accessibilityIdentifier("shortcutMessage")
             }
         }
-        .padding(.vertical, 4)
     }
 
     private var quickLayoutSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             permissionLabel("快速布局", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2",
                             iconColor: Color(red: 0.82, green: 0.40, blue: 0.12))
             HStack(spacing: 12) {
@@ -202,11 +213,10 @@ struct SettingsView: View {
                     .accessibilityIdentifier("layoutShortcutMessage")
             }
         }
-        .padding(.vertical, 4)
     }
 
     private var pinningSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Toggle(isOn: Binding(
                 get: { settings.pinningEnabled },
                 set: { enabled in
@@ -219,7 +229,7 @@ struct SettingsView: View {
             .toggleStyle(.switch)
             .accessibilityIdentifier("pinningEnabledSwitch")
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(settings.text("拾取窗口"))
                     Spacer()
@@ -255,7 +265,6 @@ struct SettingsView: View {
                     .accessibilityIdentifier("pinShortcutMessage")
             }
         }
-        .padding(.vertical, 4)
     }
 
     private var isRecordingAnyShortcut: Bool { recordingShortcut != nil }
@@ -345,6 +354,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 permissionLabel(title, purpose: purpose, icon: icon)
+                    .padding(.vertical, 4)
                 Spacer()
                 Text(settings.text(granted ? "已开启" : "未开启"))
                     .font(.system(size: 12, weight: .medium))
@@ -379,6 +389,5 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 4)
     }
 }
