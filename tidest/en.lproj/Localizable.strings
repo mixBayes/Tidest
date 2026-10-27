@@ -183,3 +183,26 @@
 "快速布局快捷键" = "Quick layout shortcut";
 "这个快捷键用于快速布局，请选择其他快捷键。" = "This shortcut opens quick layout. Choose another shortcut.";
 "Tidest 更新" = "Tidest Update";
+
+// Animated usage guide
+"按住 %@，按 %@ 打开窗口列表" = "Hold %@ and press %@ to open the window list";
+"鼠标移到窗口上，按 %@" = "Point to a window and press %@";
+"点击想要的位置，或按对应数字" = "Click a position or press its number";
+"窗口自动移到所选位置" = "The window moves to the selected position";
+"按 %@，点一下要添加的窗口" = "Press %@, then click the window to add";
+"把预览移到停靠栏，再点一下" = "Move the preview to the dock and click again";
+"以后点击停靠项目，就能回到窗口" = "Click the dock item to return to the window";
+"也可以用方向键或鼠标选择，按 Esc 取消。" = "You can also select with the arrow keys or mouse. Press Esc to cancel.";
+"按 1–9 选择位置，空格铺满屏幕，Esc 取消。" = "Press 1–9 to choose a position, Space to fill the screen, or Esc to cancel.";
+"移到屏幕边缘展开停靠栏。拖出项目可移除；点图钉可在窗口关闭后保留。" = "Move to the screen edge to reveal the dock. Drag an item out to remove it; pin it to keep it after the window closes.";
+"暂停" = "Pause";
+"继续播放" = "Resume";
+"重播" = "Replay";
+"停靠栏已关闭，可在“设置 → 窗口”中开启。" = "The dock is off. Turn it on in Settings → Windows.";
+"松开 %@" = "Release %@";
+"选择功能，点击步骤查看" = "Choose a feature, then click a step";
+"再按 %@，快速切换窗口。" = "Press %@ again to switch windows quickly.";
+"松开按钮，将选中窗口置顶。" = "Release the keys to bring the selected window to the front.";
+"拖动进度条，查看每一步" = "Drag the progress bar to explore each step";
+"已减少动态效果，可拖动进度或点击步骤" = "Reduced motion is on. Drag the bar or choose a step.";
+"播放进度" = "Playback progress";

@@ -84,6 +84,8 @@ Saved folders, directories, and tabs follow changes while the window is open. Re
 
 ## Settings and permissions
 
+Open **How to use** from the menu bar for animated examples of window switching, quick layout, and the Window Dock, using your current shortcuts. Pause, replay, drag the progress bar, or click a step to inspect it. Seeking pauses at that position; choose **Resume** to continue. With macOS **Reduce motion** enabled, drag the bar or choose a static step instead. Reading the guide does not require permissions.
+
 **Settings → Windows** contains preview styles, shortcuts, and the Window Dock toggle. **Settings → General** contains language and permission settings. Tidest follows your system language until you choose one, and applies changes immediately.
 
 | Permission | Purpose |
@@ -147,6 +149,7 @@ Debug builds provide UI preview arguments for development. These previews use sa
 | --- | --- |
 | Permission guides | `--ui-preview-accessibility` or `--ui-preview-screen` |
 | Settings / About | `--ui-preview-settings` or `--ui-preview-about` |
+| Usage guide | `--ui-preview-usage`; add `--ui-preview-usage-static` for static steps |
 | Update states | `--ui-preview-about --ui-preview-update=<state>`, where state is `checking`, `up-to-date`, `available`, `failed`, or `download-failed`; uses sample responses and never opens a browser |
 | Window switcher | `--ui-preview-switcher`; optionally `--ui-preview-tiled`, `--ui-preview-count=150`, `--ui-preview-thumbnails`, or `--ui-preview-refresh` |
 | Quick layout | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |

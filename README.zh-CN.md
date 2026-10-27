@@ -84,6 +84,8 @@ macOS 菜单栏工具，用于切换窗口、快速排列窗口，以及把常�
 
 ## 设置与权限
 
+菜单栏的 **使用说明** 提供窗口切换、快速布局和窗口停靠的动态示意，快捷键跟随当前设置。可以暂停、重播、拖动进度条或点击步骤单独查看。拖动后停在所选位置，点击“继续播放”接着看。开启 macOS 的 **减少动态效果** 后，仍可拖动进度或点击步骤查看静态示意；查看说明不需要开启权限。
+
 **设置 → 窗口** 包含预览方式、快捷键和窗口停靠开关；**设置 → 通用** 包含语言与权限。未手动选择语言时跟随系统语言，修改后立即生效。
 
 | 权限 | 用途 |
@@ -147,6 +149,7 @@ Debug 构建提供开发用界面预览参数。预览使用示例窗口和独�
 | --- | --- |
 | 权限引导 | `--ui-preview-accessibility` 或 `--ui-preview-screen` |
 | 设置／关于 | `--ui-preview-settings` 或 `--ui-preview-about` |
+| 使用说明 | `--ui-preview-usage`，可附加 `--ui-preview-usage-static` 查看静态步骤 |
 | 更新状态 | `--ui-preview-about --ui-preview-update=<state>`，state 可选 `checking`、`up-to-date`、`available`、`failed` 或 `download-failed`；使用示例响应，不会打开浏览器 |
 | 窗口切换 | `--ui-preview-switcher`，可附加 `--ui-preview-tiled`、`--ui-preview-count=150`、`--ui-preview-thumbnails` 或 `--ui-preview-refresh` |
 | 快速布局 | `--ui-preview-layout`，可附加 `--ui-preview-layout-constrained` |

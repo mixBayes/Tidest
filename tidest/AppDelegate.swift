@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var guideWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private var usageWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var currentGuide: PermissionGuide?
     private var guideOpenedManually = false
@@ -40,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             settingsWindow?.title = settings.text("设置")
             aboutWindow?.title = settings.text("关于 Tidest")
+            usageWindow?.title = settings.text("使用说明")
         }
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
@@ -52,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if arguments.contains("--ui-preview-about") {
             showAbout()
+            return
+        }
+        if arguments.contains("--ui-preview-usage") {
+            showUsageGuide()
             return
         }
         if arguments.contains("--ui-preview-settings") {
@@ -194,8 +200,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func showUsageGuide() {
-        permissions.refresh()
-        presentGuide(permissions.accessibilityGranted ? .granted : .accessibility, manuallyOpened: true)
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        if usageWindow == nil {
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: UsageGuideView.windowSize),
+                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.contentView = NSHostingView(rootView: UsageGuideView(settings: settings))
+            window.center()
+            usageWindow = window
+        }
+        usageWindow?.title = settings.text("使用说明")
+        NSApp.activate()
+        usageWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func presentGuide(_ guide: PermissionGuide, manuallyOpened: Bool) {
@@ -459,7 +479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 quickLayout.stop()
                 pinnedWindows.stop()
             }
-            if aboutWindow?.isVisible != true,
+            if aboutWindow?.isVisible != true, usageWindow?.isVisible != true,
                currentGuide != .accessibility || guideWindow?.isVisible != true {
                 presentGuide(.accessibility, manuallyOpened: guideOpenedManually)
             }
@@ -561,6 +581,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if closingWindow === aboutWindow {
             closingWindow.contentView = nil
             aboutWindow = nil
+        }
+        if closingWindow === usageWindow {
+            closingWindow.contentView = nil
+            usageWindow = nil
         }
         if closingWindow === settingsWindow {
             closingWindow.makeFirstResponder(nil)

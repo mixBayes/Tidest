@@ -43,12 +43,12 @@ struct SettingsView: View {
                 switch selectedTab {
                 case .windows:
                     Form {
-                        Section(settings.text("窗口切换")) {
+                        Section {
                             displaySettings
                             shortcutSettings
                         }
-                        Section(settings.text("快速布局")) { quickLayoutSettings }
-                        Section(settings.text("窗口停靠")) { pinningSettings }
+                        Section { quickLayoutSettings }
+                        Section { pinningSettings }
                     }
                     .accessibilityIdentifier("windowSettingsPanel")
                 case .general:
@@ -111,7 +111,7 @@ struct SettingsView: View {
 
     private var displaySettings: some View {
         VStack(alignment: .leading, spacing: 8) {
-            settingTitle("显示模式", icon: "rectangle.3.group")
+            settingTitle("窗口切换", icon: "rectangle.3.group", iconColor: .blue)
             HStack(spacing: 12) {
                 displayModeOption(.carousel, imageName: "ModeCarousel")
                 displayModeOption(.tiled, imageName: "ModeTiled")
@@ -172,7 +172,8 @@ struct SettingsView: View {
 
     private var quickLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 10) {
-            permissionLabel("快速布局", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2")
+            permissionLabel("快速布局", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2",
+                            iconColor: Color(red: 0.82, green: 0.40, blue: 0.12))
             HStack(spacing: 12) {
                 Text(settings.text("快速布局快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
@@ -213,7 +214,7 @@ struct SettingsView: View {
                     onPinEnabledChange(enabled)
                 }
             )) {
-                permissionLabel("启用停靠栏", purpose: "把常用窗口放在屏幕一侧", icon: "sidebar.right")
+                permissionLabel("窗口停靠", purpose: "把常用窗口放在屏幕一侧", icon: "sidebar.right", iconColor: .purple)
             }
             .toggleStyle(.switch)
             .accessibilityIdentifier("pinningEnabledSwitch")
@@ -283,13 +284,13 @@ struct SettingsView: View {
         onRecordingChange(false)
     }
 
-    private func settingTitle(_ title: String, icon: String) -> some View {
+    private func settingTitle(_ title: String, icon: String, iconColor: Color = .accentColor) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 18))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: 6))
                 .accessibilityHidden(true)
             Text(settings.text(title))
         }
@@ -361,13 +362,14 @@ struct SettingsView: View {
         }
     }
 
-    private func permissionLabel(_ title: String, purpose: String, icon: String) -> some View {
+    private func permissionLabel(_ title: String, purpose: String, icon: String,
+                                 iconColor: Color = .accentColor) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 18))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                .background(iconColor, in: RoundedRectangle(cornerRadius: 6))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(settings.text(title))
