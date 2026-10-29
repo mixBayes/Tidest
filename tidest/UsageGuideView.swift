@@ -84,7 +84,7 @@ nonisolated struct UsageTimeline {
 
 @MainActor
 struct UsageGuideView: View {
-    static let windowSize = CGSize(width: 700, height: 650)
+    static let windowSize = CGSize(width: 700, height: 610)
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var topic = UsageTopic.switching
@@ -209,13 +209,13 @@ struct UsageGuideView: View {
                                 .foregroundStyle(index == step ? Color.white : Color.secondary)
                                 .background(index == step ? Color.accentColor : Color.primary.opacity(0.06), in: Circle())
                             Text(instruction)
-                                .font(.system(size: 12, weight: index == step ? .medium : .regular))
+                                .font(.system(size: 12))
                                 .foregroundStyle(index == step ? .primary : .secondary)
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 91, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -230,10 +230,12 @@ struct UsageGuideView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("usageHint")
-            Spacer(minLength: 0)
         }
-        .padding(26)
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height, alignment: .topLeading)
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+        .frame(width: Self.windowSize.width, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, settings.locale)
         .accessibilityElement(children: .contain)

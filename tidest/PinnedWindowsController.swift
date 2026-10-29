@@ -108,9 +108,12 @@ final class PinnedWindowsController {
     private var diagnosticLastHoverLogAt: TimeInterval = 0
     #endif
 
+    private let statistics: UsageStatisticsStore
+
     init(settings: AppSettings? = nil, catalog: WindowCatalog? = nil,
-         previewStore: PinnedWindowPreviewStore? = nil) {
+         previewStore: PinnedWindowPreviewStore? = nil, statistics: UsageStatisticsStore? = nil) {
         self.settings = settings ?? .shared
+        self.statistics = statistics ?? .shared
         self.previewStore = self.settings.persistChanges ? previewStore ?? PinnedWindowPreviewStore() : nil
         self.catalog = catalog ?? WindowCatalog()
         do {
@@ -743,6 +746,7 @@ final class PinnedWindowsController {
             var entry = PinnedWindowEntry(window: window)
             entry.saved = entry.recordForSaving()
             windows.insert(entry, at: min(max(0, index), windows.count))
+            if !previewMode { statistics.record() }
         }
         if window.allowsThumbnail, let thumbnail { thumbnails[id] = thumbnail }
         persistWindows()
@@ -900,6 +904,7 @@ final class PinnedWindowsController {
                 switch presence {
                 case .present:
                     if catalog.activate(window) {
+                        statistics.record()
                         hoverBlockedUntilPointerLeaves = isAtDockEdge(NSEvent.mouseLocation)
                         collapse(animated: true)
                     } else { showMessage("这个窗口暂时无法切换，请再试一次") }
@@ -930,6 +935,7 @@ final class PinnedWindowsController {
                 let opened = try await launchService.open(saved)
                 guard isCurrentEntryTask(id, token: token) else { return }
                 if let opened {
+                    statistics.record()
                     bindWindow(opened, to: id)
                     hoverBlockedUntilPointerLeaves = isAtDockEdge(NSEvent.mouseLocation)
                     collapse(animated: true)

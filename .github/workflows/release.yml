@@ -121,6 +121,10 @@ jobs:
 
           [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASING.md).
           EOF
+          if [[ -f "docs/releases/$version.md" ]]; then
+            printf '\n' >> "$RUNNER_TEMP/release-notes.md"
+            cat "docs/releases/$version.md" >> "$RUNNER_TEMP/release-notes.md"
+          fi
 
       - name: Create a draft and upload all final assets
         run: |

@@ -64,20 +64,29 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("windowSettingsPanel")
                 case .general:
-                    Form {
-                        Section { languageSettings }
-                        Section(settings.text("权限")) { permissionSettings }
+                    VStack(alignment: .leading, spacing: 18) {
+                        settingsGroup { languageSettings }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(settings.text("权限"))
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                            settingsGroup { permissionSettings }
+                        }
                     }
+                    .padding(16)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("generalSettingsPanel")
                 }
             }
             .formStyle(.grouped)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .font(.system(size: 13))
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .frame(width: Self.windowSize.width, height: selectedTab == .windows ? Self.windowSize.height : nil)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, settings.locale)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settingsPanel")
         .onAppear { permissions.refresh() }
         .onChange(of: selectedTab) { _, _ in stopRecording() }
@@ -98,6 +107,13 @@ struct SettingsView: View {
         .padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settingsTabs")
+    }
+
+    private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14, content: content)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func settingsTab(_ tab: SettingsTab, title: String, identifier: String) -> some View {
@@ -335,13 +351,15 @@ struct SettingsView: View {
     }
 
     private var permissionSettings: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 14) {
             permissionRow("辅助功能 · 必需", purpose: "用于切换、布局和停靠窗口", icon: "accessibility",
                           granted: permissions.accessibilityGranted, identifier: "accessibilityPermission",
                           action: permissions.openAccessibilitySettings)
+            Divider()
             permissionRow("屏幕录制 · 可选", purpose: "用于显示窗口预览", icon: "record.circle",
                           granted: permissions.screenCaptureGranted, identifier: "screenCapturePermission",
                           action: permissions.openScreenCaptureSettings)
+            Divider()
             Text(settings.text("未开启时显示应用图标，窗口切换照常使用。"))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

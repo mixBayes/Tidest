@@ -206,3 +206,17 @@
 "拖动进度条，查看每一步" = "Drag the progress bar to explore each step";
 "已减少动态效果，可拖动进度或点击步骤" = "Reduced motion is on. Drag the bar or choose a step.";
 "播放进度" = "Playback progress";
+"使用统计" = "Usage Statistics";
+"今日使用" = "Today";
+"累计使用" = "All Time";
+"最近 7 天" = "Last 7 Days";
+"日期" = "Date";
+"使用次数" = "Uses";
+"%@ 次" = "%@ uses";
+"%@ · %@ 次" = "%@ · %@ uses";
+"切换窗口、完成布局、添加或打开停靠窗口，各计一次。" = "Each window switch, layout, dock addition or dock opening counts as one use.";
+"从 %@ 开始统计，仅保存在这台 Mac 上。" = "Counted since %@. Stored only on this Mac.";
+"仅本机保存" = "Stored on this Mac";
+"始于 %@" = "Since %@";
+"统计说明" = "About these counts";
+"取消、失败或只打开面板，不计入次数。" = "Canceled or failed actions and simply opening a panel do not count.";

@@ -187,6 +187,12 @@ final class tidestTests: XCTestCase {
                        captureID: CGWindowID(window.windowNumber), stackOrder: index)
         }
         _ = catalog.identify(entries)
+        // orderFront returns before WindowServer necessarily publishes the new
+        // stack. Observe that initial order before testing a later raise.
+        let initialOrder = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            catalog.currentWindows().map(\.id) == entries.reversed().map(\.id)
+        }, object: catalog)
+        XCTAssertEqual(XCTWaiter.wait(for: [initialOrder], timeout: 2), .completed)
         XCTAssertEqual(catalog.currentWindows().map(\.id), entries.reversed().map(\.id))
         native[0].orderFront(nil)
         let raised = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in

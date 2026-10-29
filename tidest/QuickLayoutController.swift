@@ -30,8 +30,11 @@ final class QuickLayoutController {
     private var previewConstrained = false
     private var shortcutHeld = false
 
-    init(settings: AppSettings? = nil) {
+    private let statistics: UsageStatisticsStore
+
+    init(settings: AppSettings? = nil, statistics: UsageStatisticsStore? = nil) {
         self.settings = settings ?? .shared
+        self.statistics = statistics ?? .shared
     }
 
     func present() {
@@ -132,6 +135,9 @@ final class QuickLayoutController {
             guard !Task.isCancelled else { layoutTasks[operation] = nil; return }
             let result = await service.apply(layout, to: target, in: area)
             layoutTasks[operation] = nil
+            // Count completed placement even if a newer panel now owns feedback.
+            // Raising the arranged window below is part of this same use.
+            if result != .unavailable { statistics.record() }
             // A later shortcut or selection owns feedback and keyboard focus.
             // The requested layout still completes, without interrupting it.
             guard !Task.isCancelled, feedbackID == feedback, !isPresented else { return }

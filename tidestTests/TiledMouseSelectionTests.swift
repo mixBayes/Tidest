@@ -178,7 +178,9 @@ final class TiledMouseSelectionTests: XCTestCase {
         let scrolled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             scroll.contentView.bounds.minY > 0
         }, object: scroll)
-        XCTAssertEqual(XCTWaiter.wait(for: [scrolled], timeout: 1), .completed)
+        // Native scrolling and predicate checks run asynchronously. A one-second
+        // deadline can expire just before the next check observes the movement.
+        XCTAssertEqual(XCTWaiter.wait(for: [scrolled], timeout: 2), .completed)
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
         XCTAssertEqual(scroll.contentView.bounds.minX, 0)
     }

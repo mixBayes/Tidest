@@ -73,8 +73,12 @@ final class PinnedDisplayModeControlTests: XCTestCase {
         let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
         content.cacheDisplay(in: content.bounds, to: bitmap)
         let color = try XCTUnwrap(bitmap.colorAt(x: 3, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        let accent = try XCTUnwrap(NSColor.controlAccentColor.usingColorSpace(.sRGB))
         XCTAssertGreaterThan(color.alphaComponent, 0.1)
-        XCTAssertGreaterThan(color.blueComponent, color.redComponent + 0.1)
+        XCTAssertLessThan(color.alphaComponent, 0.23)
+        XCTAssertEqual(color.redComponent, accent.redComponent, accuracy: 0.04)
+        XCTAssertEqual(color.greenComponent, accent.greenComponent, accuracy: 0.04)
+        XCTAssertEqual(color.blueComponent, accent.blueComponent, accuracy: 0.04)
     }
 
     @MainActor

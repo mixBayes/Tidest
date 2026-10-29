@@ -12,7 +12,8 @@ final class UsageWindowTests: XCTestCase {
         delegate.showUsageGuide()
         let window = try XCTUnwrap(NSApp.windows.first { $0.delegate === delegate })
         XCTAssertTrue(window.isVisible)
-        XCTAssertEqual(window.contentView?.frame.size, UsageGuideView.windowSize)
+        XCTAssertEqual(window.contentView?.frame.width, UsageGuideView.windowSize.width)
+        XCTAssertEqual(window.contentView?.frame.height ?? 0, window.contentView?.fittingSize.height ?? 0, accuracy: 1)
         XCTAssertFalse(permissions.accessibilityGranted)
         XCTAssertFalse(permissions.requestedScreenCapture)
 

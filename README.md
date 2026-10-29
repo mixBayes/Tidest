@@ -88,6 +88,8 @@ Open **How to use** from the menu bar for animated examples of window switching,
 
 **Settings → Windows** contains preview styles, shortcuts, and the Window Dock toggle. **Settings → General** contains language and permission settings. Tidest follows your system language until you choose one, and applies changes immediately.
 
+In the menu bar, **Usage Statistics** sits below **How to use** and shows today's uses, all-time uses, and a seven-day bar chart. Hover over the chart to highlight a day and see its count. The info button explains the counting rules: each successful window switch, quick layout, dock addition, or opening from the dock counts once; canceled or failed actions and simply opening a panel do not count. Counting starts when a version with statistics first launches; earlier usage cannot be recovered.
+
 | Permission | Purpose |
 | --- | --- |
 | Accessibility · Required | Switch, move, and resize windows |
@@ -102,12 +104,13 @@ Tidest checks permissions when it starts or is reopened. Use **Open System Setti
 
 Opening **About Tidest** automatically checks `https://tidest.app/api/update`. When a newer version is available, Tidest shows its version and asks whether to download it. Only choosing **Download** opens the installation-package link in your default browser. Install it after downloading. You can also check again manually. About and update checks do not require Accessibility permission. Update checks do not send your settings or window records.
 
-Tidest stores its settings and window records on your Mac. The current app includes no analytics or upload service.
+Tidest stores its settings, window records, and usage counts on your Mac, with no analytics upload service.
 
 - **Switcher previews** stay in memory and are cleared when Tidest quits.
 - **Docked windows** save their app, title, window identity, dimensions, order, and last preview across restarts.
 - **Kept windows** also save supported Finder folders, Terminal directories, or browser tab URLs.
 - **Preferences and window records** use macOS `UserDefaults`, the system's local settings storage.
+- **Usage counts** store only daily totals and the counting start date, with no action history or uploads.
 - **Dock previews** are PNG files in `~/Library/Application Support/com.mixbayes.tidest/PinnedPreviews/`. Removing an item deletes its corresponding preview.
 
 Saved previews can contain window contents, and browser URLs can include query parameters. Keep this in mind when sharing screenshots, preferences, or diagnostic material.

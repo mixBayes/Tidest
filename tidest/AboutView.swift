@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 struct AboutView: View {
-    static let windowSize = CGSize(width: 320, height: 280)
+    static let windowSize = CGSize(width: 320, height: 250)
     @ObservedObject var settings: AppSettings
     @StateObject private var updateChecker: UpdateChecker
     var onUpdateAvailable: () -> Void
@@ -44,11 +44,15 @@ struct AboutView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(height: 40)
+                .frame(minHeight: 14)
                 .padding(.horizontal, 22)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("updateStatus")
         }
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+        .frame(width: Self.windowSize.width)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, settings.locale)
         .task { await updateChecker.checkForUpdates() }

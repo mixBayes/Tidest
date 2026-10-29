@@ -68,6 +68,7 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-about", "--ui-preview-language=zh-Hans", "--ui-preview-update=up-to-date"]
         app.launch()
+        app.activate()
         XCTAssertTrue(app.windows["关于 Tidest"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Tidest"].exists)
         let version = app.staticTexts["appVersion"]
@@ -270,6 +271,7 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-settings", "--ui-preview-language=\(language)"] + additionalArguments
         app.launch()
+        app.activate()
         XCTAssertTrue(app.buttons["displayModeCarousel"].waitForExistence(timeout: 5))
         return app
     }
@@ -326,11 +328,18 @@ final class SettingsUITests: XCTestCase {
 
     @MainActor
     private func assertWindowSize(_ app: XCUIApplication, title: String, matches initial: CGSize) {
+        let general = app.buttons["generalSettingsTab"].isSelected
+        let fitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let size = app.windows[title].frame.size
+            return general ? size.height < initial.height - 100 : abs(size.height - initial.height) <= 1
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [fitted], timeout: 3), .completed)
         let size = app.windows[title].frame.size
         XCTAssertLessThanOrEqual(size.width, 500)
         XCTAssertLessThanOrEqual(size.height, 720)
         XCTAssertEqual(size.width, initial.width, accuracy: 1)
-        XCTAssertEqual(size.height, initial.height, accuracy: 1)
+        if general { XCTAssertLessThan(size.height, initial.height - 100) }
+        else { XCTAssertEqual(size.height, initial.height, accuracy: 1) }
     }
 
     @MainActor
@@ -349,6 +358,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication,
                           file: StaticString = #filePath, line: UInt = #line) {
+        app.activate()
         let viewport = app.scrollViews.firstMatch
         for _ in 0..<8 {
             if element.isHittable { return }

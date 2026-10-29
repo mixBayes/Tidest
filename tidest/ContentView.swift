@@ -90,7 +90,9 @@ struct ContentView: View {
             Spacer(minLength: 0)
             actions
         }
-        .padding(26)
+        .padding(.horizontal, 26)
+        .padding(.top, 26)
+        .padding(.bottom, 16)
         .frame(width: Self.windowSize(for: guide).width, height: Self.windowSize(for: guide).height, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.locale, settings.locale)

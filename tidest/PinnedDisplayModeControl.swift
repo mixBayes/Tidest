@@ -29,6 +29,8 @@ final class PinnedDisplayModeControl: NSSegmentedControl {
             self.artwork = artwork
             addSubview(artwork)
             focusRingType = .none
+            NotificationCenter.default.addObserver(self, selector: #selector(systemColorsChanged(_:)),
+                name: NSColor.systemColorsDidChangeNotification, object: nil)
         }
     }
 
@@ -125,6 +127,8 @@ final class PinnedDisplayModeControl: NSSegmentedControl {
         }
         artwork?.invalidateSymbols()
     }
+
+    @objc private func systemColorsChanged(_ notification: Notification) { artwork?.invalidateSymbols() }
 
     private func synchronizeSelection(animated: Bool) {
         guard let artwork, selectedSegment >= 0, selectedSegment < segmentCount,
@@ -343,7 +347,7 @@ private final class PinnedDisplayModeArtwork: NSView {
         // Keep selection color in its content so it remains visible even when
         // another app owns keyboard focus; the native material supplies the rim.
         let dark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        NSColor.systemIndigo.withAlphaComponent(dark ? 0.30 : 0.22).setFill()
+        NSColor.controlAccentColor.withAlphaComponent(dark ? 0.20 : 0.14).setFill()
         view.bounds.fill()
         NSImage(cgImage: image, size: bounds.size).draw(in:
             bounds.offsetBy(dx: -lensFrame.minX, dy: -lensFrame.minY))

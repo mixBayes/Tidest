@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var usageWindow: NSWindow?
+    private var statisticsWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var currentGuide: PermissionGuide?
     private var guideOpenedManually = false
@@ -42,10 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             settingsWindow?.title = settings.text("设置")
             aboutWindow?.title = settings.text("关于 Tidest")
             usageWindow?.title = settings.text("使用说明")
+            statisticsWindow?.title = settings.text("使用统计")
         }
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if isPreview {
+            if arguments.contains("--ui-preview-dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
             settings.displayMode = arguments.contains("--ui-preview-tiled") ? .tiled : .carousel
             if let rawLanguage = arguments.first(where: { $0.hasPrefix("--ui-preview-language=") }),
                let language = AppLanguage(rawValue: String(rawLanguage.dropFirst("--ui-preview-language=".count))) {
@@ -58,6 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if arguments.contains("--ui-preview-usage") {
             showUsageGuide()
+            return
+        }
+        if arguments.contains("--ui-preview-statistics") {
+            showStatistics()
             return
         }
         if arguments.contains("--ui-preview-settings") {
@@ -155,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem?.menu = nil
     }
 
-    private func makeStatusMenu() -> NSMenu {
+    func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
         func addAction(_ title: String, _ action: Selector, key: String = "") {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
@@ -174,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         addShortcut("快速布局", settings.layoutShortcut)
         if settings.pinningEnabled { addShortcut("拾取窗口", settings.pinShortcut) }
         addAction(settings.text("使用说明"), #selector(showUsageGuide))
+        addAction(settings.text("使用统计"), #selector(showStatistics))
         menu.addItem(.separator())
         let aboutTitle = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
             .map { settings.text("关于 Tidest %@", $0) } ?? settings.text("关于 Tidest")
@@ -209,13 +217,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.delegate = self
-            window.contentView = NSHostingView(rootView: UsageGuideView(settings: settings))
+            let content = NSHostingView(rootView: UsageGuideView(settings: settings))
+            window.contentView = content
+            window.setContentSize(content.fittingSize)
             window.center()
             usageWindow = window
         }
         usageWindow?.title = settings.text("使用说明")
         NSApp.activate()
         usageWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func showStatistics() {
+        switcher.dismiss()
+        quickLayout.dismiss()
+        pinnedWindows.cancelInteraction()
+        if statisticsWindow == nil {
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: UsageStatisticsView.windowSize),
+                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            let content = NSHostingView(rootView: UsageStatisticsView(settings: settings, statistics: .shared))
+            window.contentView = content
+            window.setContentSize(content.fittingSize)
+            window.center()
+            statisticsWindow = window
+        }
+        statisticsWindow?.title = settings.text("使用统计")
+        NSApp.activate()
+        statisticsWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func presentGuide(_ guide: PermissionGuide, manuallyOpened: Bool) {
@@ -315,10 +346,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.isReleasedWhenClosed = false
             window.delegate = self
             let checker = makeUpdateChecker()
-            window.contentView = NSHostingView(rootView: AboutView(settings: settings, updateChecker: checker,
+            let content = NSHostingView(rootView: AboutView(settings: settings, updateChecker: checker,
                 onUpdateAvailable: { [weak self] in
                     Task { @MainActor [weak self] in self?.showUpdatePrompt(checker) }
                 }))
+            window.contentView = content
+            window.setContentSize(content.fittingSize)
             window.center()
             aboutWindow = window
         }
@@ -479,7 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 quickLayout.stop()
                 pinnedWindows.stop()
             }
-            if aboutWindow?.isVisible != true, usageWindow?.isVisible != true,
+            if aboutWindow?.isVisible != true, usageWindow?.isVisible != true, statisticsWindow?.isVisible != true,
                currentGuide != .accessibility || guideWindow?.isVisible != true {
                 presentGuide(.accessibility, manuallyOpened: guideOpenedManually)
             }
@@ -585,6 +618,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if closingWindow === usageWindow {
             closingWindow.contentView = nil
             usageWindow = nil
+        }
+        if closingWindow === statisticsWindow {
+            closingWindow.contentView = nil
+            statisticsWindow = nil
         }
         if closingWindow === settingsWindow {
             closingWindow.makeFirstResponder(nil)

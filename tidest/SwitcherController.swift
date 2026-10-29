@@ -16,6 +16,7 @@ final class SwitcherController: ObservableObject {
     @Published private(set) var screenWidth: CGFloat = 1280
 
     let settings: AppSettings
+    private let statistics: UsageStatisticsStore
 
     let catalog = WindowCatalog()
     private var panel: SwitcherPanel?
@@ -43,8 +44,9 @@ final class SwitcherController: ObservableObject {
     private var shortcutRepeat = ShortcutRepeat()
     private var windowScroll = WindowScroll()
 
-    init(settings: AppSettings? = nil) {
+    init(settings: AppSettings? = nil, statistics: UsageStatisticsStore? = nil) {
         self.settings = settings ?? .shared
+        self.statistics = statistics ?? .shared
     }
 
     func updateCapturePermission(_ granted: Bool) {
@@ -172,7 +174,10 @@ final class SwitcherController: ObservableObject {
         guard windows.indices.contains(selection.index) else { dismiss(); return }
         let target = windows[selection.index]
         dismiss()
-        if !previewMode, !catalog.activate(target) { showMessage("这个窗口暂时无法切换，请再试一次") }
+        if !previewMode {
+            if catalog.activate(target) { statistics.record() }
+            else { showMessage("这个窗口暂时无法切换，请再试一次") }
+        }
     }
 
     func dismiss() {
