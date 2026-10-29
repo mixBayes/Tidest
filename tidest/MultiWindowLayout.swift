@@ -163,6 +163,33 @@ nonisolated struct LayoutTemplate: Codable, Equatable, Identifiable, Sendable {
     var root: LayoutRegion
 }
 
+/// The application and its retries share one undo baseline. A new successful no-op
+/// consumes the previous baseline too, while a preflight rejection leaves it intact.
+nonisolated struct LayoutUndoHistory<Entry: Identifiable & Sendable>: Sendable where Entry.ID: Sendable {
+    private(set) var originals: [Entry] = []
+    private var hasAttemptedApplication = false
+
+    mutating func beginDraft() { hasAttemptedApplication = false }
+
+    /// Returns whether this result replaces the previous application's undo record.
+    @discardableResult
+    mutating func recordApplication(_ changedOrUncertain: [Entry], hasSuccessfulResults: Bool) -> Bool {
+        guard !changedOrUncertain.isEmpty || hasSuccessfulResults else { return false }
+        let replacing = !hasAttemptedApplication
+        if replacing { originals = [] }
+        for entry in changedOrUncertain where !originals.contains(where: { $0.id == entry.id }) {
+            originals.append(entry)
+        }
+        hasAttemptedApplication = true
+        return replacing
+    }
+
+    mutating func recordRestoration(successfulIDs: Set<Entry.ID>) {
+        originals.removeAll { successfulIDs.contains($0.id) }
+        hasAttemptedApplication = false
+    }
+}
+
 nonisolated struct MultiWindowLayoutDraft: Equatable, Sendable {
     private(set) var root: LayoutRegion
     private(set) var assignments: [UUID: UUID] = [:]

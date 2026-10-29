@@ -38,7 +38,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var panel: NSPanel?
     private var topology: [LayoutDisplay] = []
     private var undoTopology: [LayoutDisplay] = []
-    private var originals: [LayoutWindowRestore] = []
+    private var undoHistory = LayoutUndoHistory<LayoutWindowRestore>()
     private var operation: Task<Void, Never>?
     private var loading: Task<Void, Never>?
     private var monitor: Any?
@@ -46,7 +46,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var refreshTimer: Timer?
     private var enterHeld = false
     private var previewMode = false
-    private var hasAppliedInDraft = false
     private var isUndoResult = false
     private var dragSplit: UUID?
     private var previewFailureRemaining = false
@@ -112,7 +111,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         messageKey = nil
         choosingWindow = false
         confirming = false
-        hasAppliedInDraft = false
+        undoHistory.beginDraft()
         enterHeld = false
         isPresented = true
         let size = CGSize(width: min(1040, target.visibleFrame.width), height: min(720, target.visibleFrame.height))
@@ -174,7 +173,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         confirming = false
         outcomes = []
         messageKey = nil
-        hasAppliedInDraft = false
+        undoHistory.beginDraft()
         reloadWindows()
     }
 
@@ -274,7 +273,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         outcomes = []
         messageKey = nil
         confirming = false
-        hasAppliedInDraft = false
+        undoHistory.beginDraft()
         reloadWindows()
     }
 
@@ -295,7 +294,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         }
         let previous = outcomes
         let expectedTopology = topology
-        let startsNewApplication = !hasAppliedInDraft
         isApplying = true
         confirming = false
         choosingWindow = false
@@ -311,17 +309,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                                            status: $0.0.id == failedID ? .constrained : .placed) },
                                            originals: requested.map { LayoutWindowRestore(choice: $0.0, frame: $0.0.window.frame) })
             } else { result = await service.apply(requested, topology: expectedTopology) }
-            // A successful no-op is still the newest application. Never leave an older undo
-            // behind it, which would unexpectedly restore an unrelated previous layout.
-            let didAttempt = !result.originals.isEmpty || result.outcomes.contains { $0.status.isSuccess }
-            if didAttempt {
-                if startsNewApplication { originals = []; undoTopology = expectedTopology }
-                for original in result.originals where !originals.contains(where: { $0.choice.id == original.choice.id }) {
-                    originals.append(original)
-                }
-                hasAppliedInDraft = true
+            if undoHistory.recordApplication(result.originals, hasSuccessfulResults: result.outcomes.contains { $0.status.isSuccess }) {
+                undoTopology = expectedTopology
             }
-            undoAvailable = !originals.isEmpty
+            undoAvailable = !undoHistory.originals.isEmpty
             if retryFailed {
                 let replacements = Dictionary(uniqueKeysWithValues: result.outcomes.map { ($0.id, $0) })
                 outcomes = previous.map { replacements[$0.id] ?? $0 }
@@ -343,12 +334,12 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func undoApplication() {
-        guard !isApplying, !originals.isEmpty else { return }
+        guard !isApplying, !undoHistory.originals.isEmpty else { return }
         guard previewMode || LayoutDisplay.current() == undoTopology else {
             messageKey = "显示器配置已变化，无法安全撤销上次应用。"
             return
         }
-        let requests = originals.map { ($0.choice, $0.frame) }
+        let requests = undoHistory.originals.map { ($0.choice, $0.frame) }
         let expectedTopology = undoTopology
         isApplying = true
         choosingWindow = false
@@ -359,10 +350,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             if previewMode {
                 outcomes = requests.map { LayoutWindowOutcome(choice: $0.0, requested: $0.1, actual: $0.1, status: .restored) }
             } else { outcomes = await service.apply(requests, topology: expectedTopology, restoring: true).outcomes }
-            let failed = Set(outcomes.filter { !$0.status.isSuccess }.map(\.id))
-            originals.removeAll { !failed.contains($0.choice.id) }
-            undoAvailable = !originals.isEmpty
-            hasAppliedInDraft = false
+            undoHistory.recordRestoration(successfulIDs: Set(outcomes.filter { $0.status.isSuccess }.map(\.id)))
+            undoAvailable = !undoHistory.originals.isEmpty
             finishOperation()
         }
     }

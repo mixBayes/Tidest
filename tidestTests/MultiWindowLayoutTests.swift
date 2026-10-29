@@ -7,6 +7,52 @@ import XCTest
 #endif
 
 final class MultiWindowLayoutTests: XCTestCase {
+    private struct Original: Identifiable, Equatable, Sendable {
+        let id: UUID
+        let frame: CGRect
+    }
+
+    func testSuccessfulNoOpApplicationCannotUndoAnOlderLayout() {
+        var history = LayoutUndoHistory<Original>()
+        let older = Original(id: UUID(), frame: CGRect(x: 10, y: 20, width: 800, height: 600))
+        history.recordApplication([older], hasSuccessfulResults: true)
+        XCTAssertEqual(history.originals, [older])
+        history.beginDraft()
+        // The next application succeeded, but all windows were already in place.
+        XCTAssertTrue(history.recordApplication([], hasSuccessfulResults: true))
+        XCTAssertTrue(history.originals.isEmpty, "Undo must never restore the earlier unrelated layout")
+    }
+
+    func testRejectedPreflightKeepsThePreviousUndoAvailable() {
+        var history = LayoutUndoHistory<Original>()
+        let older = Original(id: UUID(), frame: CGRect(x: 10, y: 20, width: 800, height: 600))
+        history.recordApplication([older], hasSuccessfulResults: true)
+        history.beginDraft()
+        XCTAssertFalse(history.recordApplication([], hasSuccessfulResults: false))
+        XCTAssertEqual(history.originals, [older])
+    }
+
+    func testFailureAndRetryKeepTheFirstGeometryForEveryAttemptedWindow() {
+        var history = LayoutUndoHistory<Original>()
+        let first = Original(id: UUID(), frame: CGRect(x: 10, y: 20, width: 800, height: 600))
+        let second = Original(id: UUID(), frame: CGRect(x: 900, y: 20, width: 800, height: 600))
+        history.recordApplication([first], hasSuccessfulResults: false)
+        let later = Original(id: first.id, frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        XCTAssertFalse(history.recordApplication([later, second], hasSuccessfulResults: true))
+        XCTAssertEqual(history.originals, [first, second], "Retry must not overwrite the original pre-application baseline")
+    }
+
+    func testPartialRestorationKeepsOnlyUnrestoredWindows() {
+        var history = LayoutUndoHistory<Original>()
+        let first = Original(id: UUID(), frame: CGRect(x: 10, y: 20, width: 800, height: 600))
+        let second = Original(id: UUID(), frame: CGRect(x: 900, y: 20, width: 800, height: 600))
+        history.recordApplication([first, second], hasSuccessfulResults: true)
+        history.recordRestoration(successfulIDs: [first.id])
+        XCTAssertEqual(history.originals, [second])
+        history.recordRestoration(successfulIDs: [second.id])
+        XCTAssertTrue(history.originals.isEmpty)
+    }
+
     func testExactlyFourStartingStructuresAndSeparateBlankEntry() {
         XCTAssertEqual(LayoutStartingPoint.allCases.map(\.rawValue), ["columns", "rows", "largeLeft", "grid"])
         XCTAssertEqual(LayoutStartingPoint.allCases.map { $0.makeRegion().leafIDs.count }, [2, 2, 3, 4])

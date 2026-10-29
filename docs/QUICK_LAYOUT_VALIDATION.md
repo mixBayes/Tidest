@@ -26,7 +26,7 @@
 
 | 检查 | 状态 | 证据与边界 |
 | --- | --- | --- |
-| 生产几何源码及共享 XCTest 的编译和执行 | 通过 | `scripts/test-layout-logic.sh`，18 项测试、0 失败；Swift 5 语言模式、MainActor 默认隔离 |
+| 生产几何源码及共享 XCTest 的编译和执行 | 通过 | `scripts/test-layout-logic.sh`，22 项测试、0 失败；Swift 5 语言模式、MainActor 默认隔离 |
 | 所有 app、unit test 和 UI test Swift 源码语法解析 | 通过 | `swiftc -frontend -parse tidest/*.swift tidestTests/*.swift tidestUITests/*.swift`；不解析导入的 macOS 模块、不做 AppKit 类型检查 |
 | 五种语言的新布局文案、重复键、格式占位符 | 通过 | `python3 scripts/check-layout-localizations.py` |
 | Git patch 空白检查 | 通过 | `git diff --check` |
@@ -37,7 +37,7 @@
 
 新增但尚未在 Mac 运行：5 项模板/设置/菜单单元测试、3 项面板控制器集成测试、6 项 UI 测试。界面预览与这些面板测试使用示例窗口，不能证明真实 AX 执行正确。旧窗口定位引擎测试继续使用已有 `QuickLayoutTests`。
 
-独立代理做了两轮只读审查。第一轮发现的撤销整批阻塞、单窗执行中拔屏、撤销快照时机、失败项撤销保留与键盘高亮身份问题已修正；第二轮复核未发现尚未修复的确定性缺陷；包括成功无变化批次也会替换旧撤销状态。该结论仍受缺少 macOS SDK/实机验证的限制。
+独立代理做了两轮只读全面审查，并对最终撤销边界修复做了针对性复核。第一轮发现的撤销整批阻塞、单窗执行中拔屏、撤销快照时机、失败项撤销保留与键盘高亮身份问题已修正；最终复核未发现尚未修复的确定性缺陷；22 项逻辑测试由主执行与独立审查分别重跑通过。生产控制器调用纯 Foundation 的撤销状态维护，新增 4 项回归覆盖成功无变化批次替换旧撤销、预检失败保留旧撤销、失败重试不覆盖首次几何、部分撤销只保留失败项。该结论仍受缺少 macOS SDK/实机验证的限制。
 
 ## 重现命令
 

@@ -55,9 +55,10 @@ nonisolated struct LayoutWindowOutcome: Identifiable, Sendable {
     var id: UUID { choice.id }
 }
 
-nonisolated struct LayoutWindowRestore: Sendable {
+nonisolated struct LayoutWindowRestore: Identifiable, Sendable {
     let choice: LayoutWindowChoice
     let frame: CGRect
+    var id: UUID { choice.id }
 }
 
 nonisolated struct LayoutBatchResult: Sendable {
