@@ -11,6 +11,7 @@ mkdir -p "$WORK"
 WORK="$(cd "$WORK" && pwd)"
 ARCHIVE="$WORK/Tidest.xcarchive"
 APP="$ARCHIVE/Products/Applications/tidest.app"
+SPARKLE_TOOLS="$WORK/SourcePackages/artifacts/sparkle/Sparkle/bin"
 
 fail() { printf 'Release stopped: %s\n' "$*" >&2; exit 1; }
 require() { [[ -n "${!1:-}" ]] || fail "Set $1 before packaging."; }
@@ -67,6 +68,7 @@ build_app() {
         -project "$PROJECT" -scheme tidest -configuration Release \
         -destination 'generic/platform=macOS' \
         -derivedDataPath "$WORK/DerivedData" -archivePath "$ARCHIVE" \
+        -clonedSourcePackagesDirPath "$WORK/SourcePackages" -onlyUsePackageVersionsFromResolvedFile \
         'ARCHS=arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
         CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= \
         CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO ENABLE_HARDENED_RUNTIME=YES \
@@ -97,6 +99,7 @@ package_app() {
     require APPLE_ID
     require APPLE_APP_SPECIFIC_PASSWORD
     require APPLE_TEAM_ID
+    require SPARKLE_ED25519_PRIVATE_KEY
     require RUNNER_TEMP
     [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || fail "APPLE_TEAM_ID must contain 10 letters or digits."
     check_toolchain
@@ -153,6 +156,19 @@ package_app() {
             /usr/bin/xcrun stapler validate "$3"
         }
 
+        # Sign nested code inside out. Signing the host alone does not sign
+        # Sparkle's installer, relaunch agent or XPC services for our Team.
+        local framework nested
+        framework="$APP/Contents/Frameworks/Sparkle.framework"
+        for nested in "$framework/Versions/B/Autoupdate" \
+                      "$framework/Versions/B/Updater.app" \
+                      "$framework/Versions/B/XPCServices/Downloader.xpc" \
+                      "$framework/Versions/B/XPCServices/Installer.xpc" \
+                      "$framework"; do
+            [[ -e "$nested" ]] || fail "Missing Sparkle component: $nested"
+            /usr/bin/codesign --force --timestamp --options runtime --preserve-metadata=entitlements \
+                --keychain "$keychain" --sign "$identity" "$nested"
+        done
         /usr/bin/codesign --force --timestamp --options runtime \
             --entitlements Config/Tidest.entitlements --keychain "$keychain" --sign "$identity" "$APP"
         /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
@@ -176,6 +192,8 @@ package_app() {
         /usr/bin/hdiutil detach "$mounted"
         mounted=""
     )
+
+    generate_update_feed
 
     # All operations that change the DMG have finished before hashes and attestations.
     python3 - "$WORK" "$VERSION" "$TAG" <<'PY'
@@ -214,7 +232,50 @@ info = {
 }
 (work / "BUILD-INFO.json").write_text(json.dumps(info, indent=2) + "\n")
 PY
-    (cd "$WORK" && /usr/bin/shasum -a 256 "Tidest-$VERSION.dmg" BUILD-INFO.json > SHA256SUMS)
+    (cd "$WORK" && /usr/bin/shasum -a 256 "Tidest-$VERSION.dmg" BUILD-INFO.json appcast.xml > SHA256SUMS)
+}
+
+generate_update_feed() {
+    require SPARKLE_ED25519_PRIVATE_KEY
+    require GITHUB_REPOSITORY
+    [[ -x "$SPARKLE_TOOLS/generate_appcast" ]] || fail "Build with the pinned Sparkle package before generating the feed."
+    [[ -f "$DMG" ]] || fail "Package the final DMG before generating the feed."
+    local feed="$WORK/update-feed"
+    [[ ! -e "$feed" ]] || fail "Update feed output already exists; use a fresh RELEASE_WORK_DIR."
+    mkdir "$feed"
+    # Keep notarization ZIPs out of the directory scanned by generate_appcast.
+    cp "$DMG" "$feed/Tidest-$VERSION.dmg"
+    printf '%s' "$SPARKLE_ED25519_PRIVATE_KEY" | "$SPARKLE_TOOLS/generate_appcast" \
+        --ed-key-file - --maximum-deltas 0 --maximum-versions 1 \
+        --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
+        --link https://tidest.app \
+        --full-release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" \
+        "$feed"
+    # generate_appcast only warns when the private key does not match the app's
+    # public key. An unsigned enclosure must stop publication, not pass as a feed.
+    python3 - "$feed/appcast.xml" "$VERSION" \
+        "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Tidest-$VERSION.dmg" "$DMG" <<'PY'
+import base64
+import pathlib
+import sys
+import xml.etree.ElementTree as ET
+
+path, version, url, dmg = sys.argv[1:]
+namespace = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+items = ET.parse(path).findall("./channel/item")
+if len(items) != 1:
+    sys.exit("Release stopped: expected exactly one update in the feed.")
+item = items[0]
+enclosure = item.find("enclosure")
+if item.findtext(namespace + "shortVersionString") != version or enclosure is None:
+    sys.exit("Release stopped: update feed version does not match the release.")
+signature = base64.b64decode(enclosure.get(namespace + "edSignature", ""), validate=True)
+if len(signature) != 64 or enclosure.get("url") != url or int(enclosure.get("length", "0")) != pathlib.Path(dmg).stat().st_size:
+    sys.exit("Release stopped: update archive signature, URL or size is invalid. Check the signing key.")
+PY
+    printf '%s' "$SPARKLE_ED25519_PRIVATE_KEY" | "$SPARKLE_TOOLS/sign_update" \
+        --ed-key-file - --verify "$feed/appcast.xml"
+    cp "$feed/appcast.xml" "$WORK/appcast.xml"
 }
 
 case "$COMMAND" in
@@ -222,6 +283,7 @@ case "$COMMAND" in
     build) build_app ;;
     prepare-dmg) prepare_dmg ;;
     package) package_app ;;
+    appcast) generate_update_feed ;;
     smoke-dmg) check_app; create_dmg ;;
-    *) fail "Usage: bash scripts/release.sh {check|build|prepare-dmg|package|smoke-dmg} [vX.Y.Z]" ;;
+    *) fail "Usage: bash scripts/release.sh {check|build|prepare-dmg|package|appcast|smoke-dmg} [vX.Y.Z]" ;;
 esac

@@ -65,6 +65,9 @@ final class AppSettings: ObservableObject {
     @Published var language: AppLanguage {
         didSet { if persistChanges { defaults.set(language.rawValue, forKey: "language") } }
     }
+    @Published var anonymousUsageEnabled: Bool {
+        didSet { if persistChanges { defaults.set(anonymousUsageEnabled, forKey: "anonymousUsageEnabled") } }
+    }
     @Published var shortcut: WindowShortcut {
         didSet {
             if persistChanges, let data = try? JSONEncoder().encode(shortcut) {
@@ -102,6 +105,7 @@ final class AppSettings: ObservableObject {
     init(defaults: UserDefaults = .standard, persistChanges: Bool = true, preferredLanguages: () -> [String] = { Locale.preferredLanguages }) {
         self.defaults = defaults
         self.persistChanges = persistChanges
+        anonymousUsageEnabled = defaults.object(forKey: "anonymousUsageEnabled") as? Bool ?? true
         displayMode = defaults.string(forKey: "displayMode").flatMap(DisplayMode.init(rawValue:)) ?? .carousel
         language = defaults.string(forKey: "language").flatMap(AppLanguage.init(rawValue:)) ?? AppLanguage.matching(preferredLanguages())
         let savedShortcut = defaults.data(forKey: "windowShortcut").flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }

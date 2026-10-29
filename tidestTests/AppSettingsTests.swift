@@ -14,6 +14,7 @@ final class AppSettingsTests: XCTestCase {
             XCTAssertEqual(settings.language, .traditionalChinese)
             XCTAssertEqual(settings.locale.identifier, "zh-Hant")
             XCTAssertEqual(settings.text("权限"), "權限")
+            XCTAssertTrue(settings.anonymousUsageEnabled)
         }
     }
 
@@ -49,12 +50,14 @@ final class AppSettingsTests: XCTestCase {
             let settings = AppSettings(defaults: defaults, preferredLanguages: { ["en-US"] })
             settings.displayMode = .tiled
             settings.language = .korean
+            settings.anonymousUsageEnabled = false
             settings.shortcut = WindowShortcut(keyCode: 40, modifiers: [.option, .shift], keyName: "K")
             settings.layoutShortcut = WindowShortcut(keyCode: 37, modifiers: [.control, .option], keyName: "L")
 
             let restarted = AppSettings(defaults: defaults, preferredLanguages: { ["ja-JP"] })
             XCTAssertEqual(restarted.displayMode, .tiled)
             XCTAssertEqual(restarted.language, .korean)
+            XCTAssertFalse(restarted.anonymousUsageEnabled)
             XCTAssertEqual(restarted.shortcut, settings.shortcut)
             XCTAssertEqual(restarted.layoutShortcut, settings.layoutShortcut)
             XCTAssertEqual(restarted.locale.identifier, "ko")
@@ -83,6 +86,7 @@ final class AppSettingsTests: XCTestCase {
             let settings = AppSettings(defaults: defaults, persistChanges: false, preferredLanguages: { ["en"] })
             settings.displayMode = .tiled
             settings.language = .japanese
+            settings.anonymousUsageEnabled = false
             settings.shortcut = WindowShortcut(keyCode: 40, modifiers: .option, keyName: "K")
             settings.layoutShortcut = WindowShortcut(keyCode: 37, modifiers: .option, keyName: "L")
 
@@ -91,6 +95,7 @@ final class AppSettingsTests: XCTestCase {
             let restarted = AppSettings(defaults: defaults, preferredLanguages: { ["en"] })
             XCTAssertEqual(restarted.displayMode, .carousel)
             XCTAssertEqual(restarted.language, .english)
+            XCTAssertTrue(restarted.anonymousUsageEnabled)
             XCTAssertEqual(restarted.shortcut, .default)
             XCTAssertEqual(restarted.layoutShortcut, .quickLayout)
         }

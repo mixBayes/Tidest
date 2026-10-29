@@ -4,24 +4,42 @@ final class AboutUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
-    func testAutomaticCheckShowsVersionAndWaitsForDownloadConfirmation() {
+    func testDownloadWaitsForConfirmationAndLaterKeepsRestartAvailable() {
         let app = launchAbout(outcome: "available")
         XCTAssertTrue(app.dialogs["updatePrompt"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.windows["关于 Tidest"].sheets.firstMatch.exists)
-        XCTAssertTrue(app.staticTexts["Tidest 2.0.4 已可下载，是否现在下载？"].exists)
-        XCTAssertFalse(status(app).contains("已在浏览器中打开"))
-
+        XCTAssertTrue(app.staticTexts["Tidest 2.0.9 已可下载，是否现在下载？"].exists)
         app.dialogs["updatePrompt"].buttons["稍后"].click()
-        XCTAssertEqual(status(app), "发现新版本 2.0.4")
-        XCTAssertFalse(app.dialogs["updatePrompt"].exists)
+        XCTAssertEqual(status(app), "发现新版本 2.0.9")
+        XCTAssertTrue(app.buttons["downloadUpdate"].exists)
+        app.buttons["downloadUpdate"].click()
+        XCTAssertTrue(app.buttons["cancelUpdateDownload"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.progressIndicators["updateDownloadProgress"].exists)
+        saveScreenshot(app, name: "关于 · 应用内下载")
+        XCTAssertTrue(app.dialogs["updateReadyPrompt"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.dialogs["updateReadyPrompt"].buttons["重启并更新"].exists)
+        saveScreenshot(app, name: "更新 · 重启确认")
+        app.dialogs["updateReadyPrompt"].buttons["稍后"].click()
+        XCTAssertTrue(app.buttons["restartAndUpdate"].exists)
+        XCTAssertFalse(app.buttons["downloadUpdate"].exists)
+        saveScreenshot(app, name: "关于 · 稍后仍可重启更新")
+        app.buttons["restartAndUpdate"].click()
+        XCTAssertEqual(status(app), "正在重启并更新…")
+    }
 
-        app.buttons["checkForUpdates"].click()
+    @MainActor
+    func testClosingAboutDuringDownloadKeepsProgressAndAllowsCancellation() {
+        let app = launchAbout(outcome: "downloading")
         XCTAssertTrue(app.dialogs["updatePrompt"].waitForExistence(timeout: 5))
-        saveScreenshot(app, name: "更新 · 独立下载确认窗口")
         app.dialogs["updatePrompt"].buttons["下载"].click()
-        XCTAssertEqual(status(app), "已在浏览器中打开 2.0.4 的下载链接。")
+        XCTAssertTrue(app.buttons["cancelUpdateDownload"].waitForExistence(timeout: 2))
+        app.windows["关于 Tidest"].buttons[XCUIIdentifierCloseWindow].click()
+        openAboutFromMenu(app)
+        XCTAssertTrue(app.buttons["cancelUpdateDownload"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.dialogs["updatePrompt"].exists)
-        saveScreenshot(app, name: "关于 · 确认后打开下载")
+        app.buttons["cancelUpdateDownload"].click()
+        XCTAssertFalse(app.buttons["cancelUpdateDownload"].exists)
+        XCTAssertFalse(app.progressIndicators["updateDownloadProgress"].exists)
+        XCTAssertTrue(app.buttons["checkForUpdates"].isEnabled)
     }
 
     @MainActor
@@ -50,14 +68,16 @@ final class AboutUITests: XCTestCase {
         let app = launchAbout(outcome: "download-failed")
         XCTAssertTrue(app.dialogs["updatePrompt"].waitForExistence(timeout: 5))
         app.dialogs["updatePrompt"].buttons["下载"].click()
-        XCTAssertEqual(status(app), "无法打开下载链接，请稍后重试。")
+        let failed = NSPredicate { _, _ in self.status(app) == "更新未完成，请稍后重试。你可以继续使用当前版本。" }
+        expectation(for: failed, evaluatedWith: nil)
+        waitForExpectations(timeout: 8)
         XCTAssertFalse(app.dialogs["updatePrompt"].exists)
         XCTAssertTrue(app.buttons["checkForUpdates"].isEnabled)
         XCTAssertTrue(app.windows["关于 Tidest"].isHittable)
     }
 
     @MainActor
-    func testMenuOpensAboutOnFirstClickAndChecksAgainAfterClosing() {
+    func testMenuReopeningAboutKeepsTheAvailableUpdate() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-settings", "--ui-preview-language=zh-Hans", "--ui-preview-update=available"]
         app.launch()
@@ -75,8 +95,8 @@ final class AboutUITests: XCTestCase {
         XCUIApplication(bundleIdentifier: "com.apple.finder").activate()
         openAboutFromMenu(app)
         XCTAssertTrue(app.windows["关于 Tidest"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.dialogs["updatePrompt"].waitForExistence(timeout: 5), "Reopening About must check again")
-        app.dialogs["updatePrompt"].buttons["稍后"].click()
+        XCTAssertTrue(app.buttons["downloadUpdate"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.dialogs["updatePrompt"].exists, "Reopening must preserve the pending update")
         saveScreenshot(app, name: "关于 · 从菜单首次打开与重开")
     }
 
@@ -105,6 +125,9 @@ final class AboutUITests: XCTestCase {
 
     @MainActor
     private func openAboutFromMenu(_ app: XCUIApplication) {
+        // Activate before opening the menu. XCTest otherwise activates while
+        // clicking the menu item, which closes a menu opened by an inactive app.
+        app.activate()
         let icon = app.descendants(matching: .any)["tidestMenuBarIcon"]
         XCTAssertTrue(icon.waitForExistence(timeout: 3), app.debugDescription)
         icon.click()
@@ -121,11 +144,13 @@ final class AboutUITests: XCTestCase {
     @MainActor
     private func saveScreenshot(_ app: XCUIApplication, name: String) {
         app.activate()
-        let target = app.dialogs["updatePrompt"].exists ? app.dialogs["updatePrompt"] : app.windows["关于 Tidest"]
-        if target.elementType == .dialog {
-            target.buttons["下载"].hover()
+        let target: XCUIElement
+        if app.dialogs["updateReadyPrompt"].exists {
+            target = app.dialogs["updateReadyPrompt"]
+        } else if app.dialogs["updatePrompt"].exists {
+            target = app.dialogs["updatePrompt"]
         } else {
-            app.buttons["checkForUpdates"].hover()
+            target = app.windows["关于 Tidest"]
         }
         let attachment = XCTAttachment(screenshot: target.screenshot())
         attachment.name = name

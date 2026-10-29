@@ -30,7 +30,7 @@ Tidest 的正式安装包由 GitHub Actions 从版本标签对应的公开源码
 
 Team ID 不是密码，会写入公开构建信息，供用户核对签名身份。
 
-### 4. 添加四个环境 Secret
+### 4. 添加五个环境 Secret
 
 在同一个 release 环境的 **Environment secrets** 中添加：
 
@@ -40,6 +40,7 @@ Team ID 不是密码，会写入公开构建信息，供用户核对签名身份
 | `APPLE_CERTIFICATE_PASSWORD` | 导出该 p12 文件时设置的密码 |
 | `APPLE_ID` | 有权为此 Team 公证软件的 Apple 账户邮箱 |
 | `APPLE_APP_SPECIFIC_PASSWORD` | 为该 Apple 账户生成的 App 专用密码，不是账户登录密码 |
+| `SPARKLE_ED25519_PRIVATE_KEY` | 与 `Config/Info.plist` 中 `SUPublicEDKey` 配对的 Sparkle 更新签名私钥 |
 
 获取 p12：
 
@@ -88,11 +89,42 @@ git push origin v2.0.1
 
 当前 `xcode-27` 是 GitHub 托管的预览运行环境标签；所用 Xcode 本身固定为正式版 27.0，和工程创建时使用的版本一致。实际运行环境、SDK 和 Xcode 版本都会写入构建信息；更新工具链需审阅流程和脚本后提交。
 
+## 应用内更新
+
+工程通过 Swift Package Manager 固定使用 Sparkle 2.10.1，`Package.resolved` 也应提交。正式构建会从同一个已锁定并校验的包中使用 `generate_appcast` 工具，不额外下载工具版本。
+
+应用读取 `https://github.com/mixBayes/Tidest/releases/latest/download/appcast.xml`。发布流程会在最终 DMG 完成签名和公证后，为安装包及更新列表生成 Ed25519 签名，将 `appcast.xml` 与 DMG 一起发布。更新列表使用固定版本的 DMG 地址、实际构建编号和最低 macOS 版本；应用会在解包前验证安装包，并要求更新列表签名有效。生成后不要再编辑 XML，任何变化都需要重新签名。`appcast.xml` 也包含在文件指纹和 GitHub 构建来源证明中。
+
+首次接入时，专用私钥已经由官方 `generate_keys` 保存在本机登录钥匙串，account 是 `com.mixbayes.tidest`；公钥已写入 `Config/Info.plist`。私钥不要提交到仓库。配置 GitHub 的 release 环境时，先登录 GitHub CLI，再运行：
+
+~~~sh
+(
+set -e
+sparkle_tools=build/SourcePackages/artifacts/sparkle/Sparkle/bin
+signing_dir="$(mktemp -d)"
+trap 'rm -rf "$signing_dir"' EXIT
+signing_file="$signing_dir/key"
+"$sparkle_tools/generate_keys" --account com.mixbayes.tidest -x "$signing_file"
+gh secret set SPARKLE_ED25519_PRIVATE_KEY --env release -R mixBayes/Tidest < "$signing_file"
+)
+~~~
+
+先通过 Xcode 解析依赖，才能使用上面的工具路径。请按组织的凭据备份方式保存此钥匙串条目；不要为了每次发布重新生成密钥，也不要只改应用公钥。其他电脑需要从已有密钥安全导入。工作流缺少签名私钥会停止发布，不会生成无法验证的自动更新。
+
+Sparkle 的辅助程序位于 `tidest.app/Contents/Frameworks/Sparkle.framework/Versions/B/`，包含 `Autoupdate`、`Updater.app` 和 XPC 服务。发布脚本从内部向外逐项使用同一个 Developer ID 重新签名，保留辅助程序原有权限，再签名 Tidest 和公证。用户无需单独安装辅助程序。运行时 Sparkle 可能将辅助程序复制到缓存目录完成安装；需要写入授权时由 macOS 请求管理员权限。
+
+更新器在应用启动时启用 Sparkle 的定时检查，`SUScheduledCheckInterval` 为 86400 秒；Sparkle 保存上次检查时间，应用不再添加第二个定时器。后台发现新版只记录信息并结束本次会话，不打开“关于”或显示下载、重启对话框；检查失败静默处理，保留已知升级标记。没有启用自动下载或 Sparkle 系统信息上传。
+
+菜单栏和“关于”菜单项使用相同的升级图标；气泡不抢当前应用焦点，点击后关闭并打开“关于”，点击其他位置则只关闭气泡。只有实际显示气泡后才将版本号写入本机提醒记录，同一版本跨重启也不重复提示。已发现的版本和构建编号另外保存在本机，进入“关于”直接显示下载按钮，不重新请求更新列表；更新后的构建启动时会清除已安装版本对应的标记。用户点击下载时再由 Sparkle 重新校验并开始下载；若此时更新已换成另一版本，会再次要求用户确认。关闭“关于”或选择“稍后”会结束展示会话，让后续后台检查仍可运行；正在下载的任务不会因此取消。准备好的更新由 Sparkle 保存在磁盘，用户主动重启或下次正常退出时可完成安装。
+
+发布验收应使用两个同一 Team 签名、公证的正式构建，验证下载、签名不匹配、取消、断网、关闭窗口后继续下载、“稍后”后重启、退出时安装、不可写安装位置，以及设置、停靠窗口和系统权限在更新后的状态。界面预览测试只模拟回调，不会替换应用，也不能代替正式构建之间的升级验收。
+
 正式附件包括：
 
 - `Tidest-X.Y.Z.dmg`：用户安装包。
 - `BUILD-INFO.json`：源码提交、工具链、签名 Team ID、Apple 公证编号和 DMG 指纹。
-- `SHA256SUMS`：DMG 和构建信息的 SHA-256 文件指纹。
+- `SHA256SUMS`：DMG、构建信息和更新列表的 SHA-256 文件指纹。
+- `appcast.xml`：供应用内更新使用的已签名更新列表。
 - `provenance.sigstore.json`：GitHub 构建来源证明，可用于离线保存和后续验证。
 
 构建日志和公证诊断保留在本次 Actions 的诊断附件中，保存 14 天；它们不是正式发布附件。
@@ -103,7 +135,7 @@ git push origin v2.0.1
 
 [Tidest 2.0.1 DMG](https://github.com/mixBayes/Tidest/releases/download/v2.0.1/Tidest-2.0.1.dmg)
 
-这只是地址格式示例；对应版本发布后才可下载。GitHub 会重定向到文件存储服务，不需要用户先进入发布页面。官网更新与发布包是两个独立步骤，本流程不会自动修改官网或更新接口。
+这只是地址格式示例；对应版本发布后才可下载。GitHub 会重定向到文件存储服务，不需要用户先进入发布页面。官网更新与发布包是两个独立步骤，本流程不会自动修改官网或原有 JSON 更新接口。应用内更新读取上述 GitHub 更新列表；旧版仍读取官网 JSON 接口。
 
 ## 用户验证下载文件
 
@@ -159,7 +191,7 @@ spctl --assess --type execute --verbose=4 /Applications/tidest.app
 
 在 **Actions → Verify release → Run workflow** 中选择 **main**，填写已发布的标签（例如 `v2.0.4`），运行验证。
 
-这个流程会下载原始附件，核对发布证明、四个附件的文件指纹、构建来源对应的标签和源码提交，以及 DMG 的 Apple 公证。默认只有读取权限，不使用签名凭据，不会重新打包、发布、覆盖附件或移动标签，也不受当前应用版本号限制。
+这个流程会下载原始附件，核对发布证明、全部附件的文件指纹、构建来源对应的标签和源码提交，以及 DMG 的 Apple 公证。默认只有读取权限，不使用签名凭据，不会重新打包、发布、覆盖附件或移动标签，也不受当前应用版本号限制。
 
 验证结果记录在这次 **Verify release** 运行中。以前失败的发布工作流仍会保留原来的红色状态。
 

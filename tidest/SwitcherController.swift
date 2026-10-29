@@ -79,6 +79,7 @@ final class SwitcherController: ObservableObject {
         // Drop cached images before presenting any windows after permission is revoked.
         updateCapturePermission(captureEnabled)
         guard shortcutRepeat.keyDown(at: ProcessInfo.processInfo.systemUptime) else { return }
+        if !previewMode { DailyActivityReporter.shared.recordActivity() }
         if isPresented {
             if isLoading { queuedSteps += direction }
             else { move(direction) }

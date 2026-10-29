@@ -53,11 +53,18 @@ done
 
 gh release verify "$tag" -R "$repo"
 cd "$asset_dir"
-for asset in "Tidest-${tag#v}.dmg" BUILD-INFO.json SHA256SUMS provenance.sigstore.json; do
+assets=("Tidest-${tag#v}.dmg" BUILD-INFO.json SHA256SUMS)
+# Older releases predate in-app updates. Requiring the feed follows the
+# checked-out release source, so a missing new feed cannot silently pass.
+if git show "$source_commit:Config/Info.plist" 2>/dev/null | /usr/bin/plutil -extract SUFeedURL raw -o - - >/dev/null 2>&1; then
+  assets+=(appcast.xml)
+fi
+for asset in "${assets[@]}" provenance.sigstore.json; do
+  [[ -f "$asset" ]] || { echo "Missing release asset: $asset" >&2; exit 1; }
   gh release verify-asset "$tag" "$asset" -R "$repo"
 done
 shasum -a 256 -c SHA256SUMS
-for asset in "Tidest-${tag#v}.dmg" BUILD-INFO.json SHA256SUMS; do
+for asset in "${assets[@]}"; do
   gh attestation verify "$asset" -R "$repo" \
     --bundle provenance.sigstore.json \
     --signer-workflow "$repo/.github/workflows/release.yml" \
@@ -67,4 +74,4 @@ done
 jq -e --arg tag "$tag" --arg commit "$source_commit" --arg repo "$repo" \
   '.tag == $tag and .version == ($tag | ltrimstr("v")) and .commit == $commit and .repository == $repo' \
   BUILD-INFO.json >/dev/null
-echo "Verified $tag: all four release assets and their source commit $source_commit."
+echo "Verified $tag: all release assets and their source commit $source_commit."

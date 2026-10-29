@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -97,10 +98,60 @@ class VerifyReleaseTests(unittest.TestCase):
         (self.assets / "BUILD-INFO.json").write_text(json.dumps(self.info))
         (self.assets / "provenance.sigstore.json").write_text("test bundle")
         sums = []
-        for name in ("Tidest-2.0.4.dmg", "BUILD-INFO.json"):
+        names = ["Tidest-2.0.4.dmg", "BUILD-INFO.json"]
+        if (self.assets / "appcast.xml").exists():
+            names.append("appcast.xml")
+        for name in names:
             digest = hashlib.sha256((self.assets / name).read_bytes()).hexdigest()
             sums.append(f"{digest}  {name}\n")
         (self.assets / "SHA256SUMS").write_text("".join(sums))
+
+    def enable_update_feed(self):
+        config = self.root / "Config" / "Info.plist"
+        config.parent.mkdir(exist_ok=True)
+        config.write_bytes(plistlib.dumps({"SUFeedURL": "https://example.com/appcast.xml"}))
+        self.git("add", "Config/Info.plist")
+        self.git("commit", "-qm", "include updater")
+        self.commit = self.git("rev-parse", "HEAD").strip()
+        self.git("tag", "-af", TAG, "-m", TAG)
+        self.tag_digest = self.git("rev-parse", f"refs/tags/{TAG}").strip()
+        self.info["commit"] = self.commit
+
+    def test_new_release_verifies_feed_and_its_source(self):
+        self.enable_update_feed()
+        (self.assets / "appcast.xml").write_text("signed test feed")
+        self.write_assets()
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(any(call[:3] == ["release", "verify-asset", TAG] and call[3] == "appcast.xml" for call in self.calls))
+        self.assertTrue(any(call[:3] == ["attestation", "verify", "appcast.xml"] for call in self.calls))
+
+    def test_new_release_cannot_omit_feed_even_if_checksums_omit_it(self):
+        self.enable_update_feed()
+        self.write_assets()
+        result = self.run_gate()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Missing release asset: appcast.xml", result.stdout)
+        self.assertFalse(any(call[0] == "attestation" for call in self.calls))
+
+    def test_new_release_checks_feed_digest(self):
+        self.enable_update_feed()
+        (self.assets / "appcast.xml").write_text("signed test feed")
+        self.write_assets()
+        (self.assets / "appcast.xml").write_text("tampered")
+        result = self.run_gate()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("appcast.xml: FAILED", result.stdout)
+
+    def test_older_release_does_not_require_feed_added_later(self):
+        config = self.root / "Config" / "Info.plist"
+        config.parent.mkdir()
+        config.write_bytes(plistlib.dumps({"SUFeedURL": "https://example.com/appcast.xml"}))
+        self.git("add", "Config/Info.plist")
+        self.git("commit", "-qm", "updater added after release")
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(any("appcast.xml" in call for call in self.calls))
 
     def run_gate(self, tag=TAG, **scenario):
         (self.root / "scenario.json").write_text(json.dumps(scenario))

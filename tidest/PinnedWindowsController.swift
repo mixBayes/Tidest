@@ -229,6 +229,7 @@ final class PinnedWindowsController {
         previousCaptureApplication = NSWorkspace.shared.frontmostApplication
         previousCaptureCursor = NSCursor.current
         isCaptureModeActive = true
+        if !previewMode { DailyActivityReporter.shared.recordActivity() }
         logDiagnostic("capture mode entered pointer=\(NSEvent.mouseLocation)")
         selectionSession = UUID()
         clearHoverSelection()
@@ -1243,6 +1244,7 @@ final class PinnedWindowsController {
         guard let screen, !isHardwareMouseButtonPressed,
               !isExpanded || presentedDisplayID != displayID(screen) else { return }
         expand(on: screen)
+        if !previewMode { DailyActivityReporter.shared.recordActivity() }
     }
 
     private func schedulePointerUpdate(at point: CGPoint) {

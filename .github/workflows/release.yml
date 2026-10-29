@@ -76,6 +76,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
         run: bash scripts/release.sh package "$RELEASE_TAG"
 
       - name: Attest the final files
@@ -86,6 +87,7 @@ jobs:
             ${{ env.RELEASE_WORK_DIR }}/Tidest-*.dmg
             ${{ env.RELEASE_WORK_DIR }}/BUILD-INFO.json
             ${{ env.RELEASE_WORK_DIR }}/SHA256SUMS
+            ${{ env.RELEASE_WORK_DIR }}/appcast.xml
 
       - name: Verify the provenance before uploading
         env:
@@ -94,7 +96,7 @@ jobs:
           cp "$BUNDLE_PATH" "$RELEASE_WORK_DIR/provenance.sigstore.json"
           cd "$RELEASE_WORK_DIR"
           shasum -a 256 -c SHA256SUMS
-          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS; do
+          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS appcast.xml; do
             gh attestation verify "$asset" -R "$GITHUB_REPOSITORY" \
               --bundle provenance.sigstore.json \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
@@ -133,6 +135,7 @@ jobs:
           gh release upload "$RELEASE_TAG" \
             "$RELEASE_WORK_DIR/Tidest-${RELEASE_TAG#v}.dmg" \
             "$RELEASE_WORK_DIR/BUILD-INFO.json" "$RELEASE_WORK_DIR/SHA256SUMS" \
+            "$RELEASE_WORK_DIR/appcast.xml" \
             "$RELEASE_WORK_DIR/provenance.sigstore.json"
 
       - name: Download and verify the draft assets
@@ -141,7 +144,7 @@ jobs:
           gh release download "$RELEASE_TAG" --dir "$download_dir"
           cd "$download_dir"
           shasum -a 256 -c SHA256SUMS
-          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS; do
+          for asset in "Tidest-${RELEASE_TAG#v}.dmg" BUILD-INFO.json SHA256SUMS appcast.xml; do
             gh attestation verify "$asset" -R "$GITHUB_REPOSITORY" \
               --bundle provenance.sigstore.json \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \

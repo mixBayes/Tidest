@@ -66,6 +66,7 @@ struct SettingsView: View {
                 case .general:
                     VStack(alignment: .leading, spacing: 18) {
                         settingsGroup { languageSettings }
+                        settingsGroup { anonymousUsageSettings }
                         VStack(alignment: .leading, spacing: 8) {
                             Text(settings.text("权限"))
                                 .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -161,6 +162,18 @@ struct SettingsView: View {
             .fixedSize()
             .frame(width: 180, alignment: .trailing)
             .accessibilityIdentifier("languagePicker")
+        }
+    }
+
+    private var anonymousUsageSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(settings.text("发送匿名使用信息"), isOn: $settings.anonymousUsageEnabled)
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("anonymousUsageToggle")
+            Text(settings.text("帮助了解 Tidest 每天的使用情况。仅发送随机安装标识、使用时间和应用版本，不包含窗口内容。"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

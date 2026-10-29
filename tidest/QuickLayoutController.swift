@@ -73,6 +73,7 @@ final class QuickLayoutController {
             target = found
             showHighlights(for: found, primaryScreenTop: primaryScreenTop, screenFrames: screenFrames)
             presentPanel(near: pointer)
+            DailyActivityReporter.shared.recordActivity()
         }
     }
 

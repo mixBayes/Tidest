@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var guideWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private let providedUpdateChecker: UpdateChecker?
+    private lazy var updateChecker = providedUpdateChecker ?? makeUpdateChecker()
+    private let updateReminder = UpdateReminder()
+    private var updateObservation: AnyCancellable?
     private var usageWindow: NSWindow?
     private var statisticsWindow: NSWindow?
     private var statusItem: NSStatusItem?
@@ -23,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isRecordingShortcut = false
     private var permissionTimer: Timer?
     private var languageObservation: AnyCancellable?
+    private var activityEventMonitor: Any?
     private var permissions: PermissionStore
     private var lastAccessibilityGranted = false
     private var lastScreenCaptureGranted: Bool?
@@ -31,8 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.init(permissions: PermissionStore(preview: AppDelegate.isPreviewMode))
     }
 
-    init(permissions: PermissionStore) {
+    init(permissions: PermissionStore, updateChecker: UpdateChecker? = nil) {
         self.permissions = permissions
+        self.providedUpdateChecker = updateChecker
         super.init()
     }
 
@@ -44,7 +50,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             aboutWindow?.title = settings.text("关于 Tidest")
             usageWindow?.title = settings.text("使用说明")
             statisticsWindow?.title = settings.text("使用统计")
+            updateReminder.hide()
+            refreshUpdateIndicators()
         }
+        updateObservation = updateChecker.$availableUpdate
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshUpdateIndicators() }
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if isPreview {
@@ -55,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 settings.language = language
             }
         }
+        if arguments.contains("--ui-preview-update-reminder") { return }
         if arguments.contains("--ui-preview-about") {
             showAbout()
             return
@@ -102,6 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         #endif
+        updateChecker.start()
+        // Local input belongs to Tidest's own windows and menus. Record only
+        // that an interaction happened; never retain keys or pointer positions.
+        // This also catches a new day's use of a panel left open overnight.
+        activityEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) { event in
+            MainActor.assumeIsolated { _ = DailyActivityReporter.shared.recordActivity() }
+            return event
+        }
         shortcut.onPress = { [weak self] direction in
             guard let self else { return }
             refreshPermissions()
@@ -153,6 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        updateReminder.hide()
+        DailyActivityReporter.shared.recordActivity()
         if NSApp.currentEvent?.type != .rightMouseUp {
             refreshPermissions()
         }
@@ -186,11 +208,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let aboutTitle = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
             .map { settings.text("关于 Tidest %@", $0) } ?? settings.text("关于 Tidest")
         addAction(aboutTitle, #selector(showAbout))
+        if let about = menu.items.last, updateChecker.availableUpdate != nil {
+            about.attributedTitle = UpdateReminder.aboutTitle(aboutTitle)
+            about.setAccessibilityLabel(settings.text("%@，有新版本", aboutTitle))
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: settings.text("退出"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
         return menu
+    }
+
+    private func refreshUpdateIndicators() {
+        guard let button = statusItem?.button else { return }
+        let hasUpdate = updateChecker.availableUpdate != nil
+        button.image = UpdateReminder.statusImage(hasUpdate: hasUpdate)
+        button.image?.isTemplate = true
+        button.setAccessibilityLabel(hasUpdate ? settings.text("Tidest，有新版本") : "Tidest")
+        guard hasUpdate else {
+            updateReminder.hide()
+            return
+        }
+        if aboutWindow?.isVisible != true, !updateChecker.shouldPromptForDownload,
+           updateChecker.needsUpdateReminder,
+           updateReminder.show(relativeTo: button, settings: settings, onClick: { [weak self] in self?.showAbout() }) {
+            updateChecker.markUpdateReminderShown()
+        }
     }
 
     @discardableResult
@@ -336,6 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func showAbout() {
+        updateReminder.hide()
         switcher.dismiss()
         quickLayout.dismiss()
         pinnedWindows.cancelInteraction()
@@ -345,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.delegate = self
-            let checker = makeUpdateChecker()
+            let checker = updateChecker
             let content = NSHostingView(rootView: AboutView(settings: settings, updateChecker: checker,
                 onUpdateAvailable: { [weak self] in
                     Task { @MainActor [weak self] in self?.showUpdatePrompt(checker) }
@@ -372,26 +416,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         alert.window.title = settings.text("Tidest 更新")
         NSApp.activate()
         if alert.runModal() == .alertFirstButtonReturn { checker.downloadUpdate() }
+        else { checker.deferUpdate() }
     }
 
     private func makeUpdateChecker() -> UpdateChecker {
+        let checker: UpdateChecker
         #if DEBUG
         if isPreview, let preview = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-preview-update=") }) {
             let outcome = String(preview.dropFirst("--ui-preview-update=".count))
-            return UpdateChecker(currentVersion: "2.0.3", fetch: { request in
-                let delay = outcome == "checking" ? 30 : (outcome == "failed" ? 3 : 1)
-                try await Task.sleep(for: .seconds(delay))
-                if outcome == "failed" { throw URLError(.notConnectedToInternet) }
-                let version = outcome == "up-to-date" ? "2.0.3" : "2.0.4"
-                let data = try JSONSerialization.data(withJSONObject: [
-                    "version": version, "download_url": "https://example.com/Tidest.dmg"
-                ])
-                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (data, response)
-            }, openDownload: { _ in outcome != "download-failed" })
+            checker = UpdateChecker.preview(outcome: outcome)
+        } else {
+            checker = UpdateChecker()
         }
+        #else
+        checker = UpdateChecker()
         #endif
-        return UpdateChecker()
+        checker.onFocus = { [weak self] in self?.showAbout() }
+        checker.onReadyToInstall = { [weak self, weak checker] in
+            Task { @MainActor [weak self, weak checker] in
+                guard let self, let checker else { return }
+                showAbout()
+                showRestartPrompt(checker)
+            }
+        }
+        return checker
+    }
+
+    private func showRestartPrompt(_ checker: UpdateChecker) {
+        guard case .readyToInstall(let version) = checker.state else { return }
+        let alert = NSAlert()
+        alert.messageText = settings.text("更新已准备好")
+        alert.informativeText = settings.text("Tidest %@ 已准备好。现在重启，或在下次退出 Tidest 时完成更新。", version)
+        alert.addButton(withTitle: settings.text("重启并更新"))
+        alert.addButton(withTitle: settings.text("稍后")).keyEquivalent = "\u{1b}"
+        alert.window.identifier = NSUserInterfaceItemIdentifier("updateReadyPrompt")
+        alert.window.title = settings.text("Tidest 更新")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn { checker.restartAndInstall() }
+        else { checker.deferUpdate() }
     }
 
     private func changeShortcut(_ value: WindowShortcut) -> String? {
@@ -597,6 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        DailyActivityReporter.shared.recordActivity()
         refreshPermissions()
         if bringGuideToFront() { return true }
         if let guide = permissions.startupGuide { presentGuide(guide, manuallyOpened: false) }
@@ -612,6 +675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let closingWindow = notification.object as? NSWindow else { return }
         if closingWindow === aboutWindow {
+            updateChecker.deferUpdate()
             closingWindow.contentView = nil
             aboutWindow = nil
         }
@@ -635,6 +699,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        updateReminder.hide()
+        updateObservation?.cancel()
+        if let activityEventMonitor { NSEvent.removeMonitor(activityEventMonitor) }
+        activityEventMonitor = nil
         permissionTimer?.invalidate()
         shortcut.stop()
         layoutShortcut.stop()

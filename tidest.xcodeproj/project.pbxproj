@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A10D0001307F000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10D0003307F000000000001 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		706593EE307DDB6200F5EF8A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -51,6 +55,7 @@
 		706593DB307DDB6200F5EF8A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				A10D0001307F000000000001 /* Sparkle in Frameworks */,
 			);
 		};
 		706593EA307DDB6200F5EF8A /* Frameworks */ = {
@@ -103,6 +108,9 @@
 				706593E0307DDB6200F5EF8A /* tidest */,
 			);
 			name = tidest;
+			packageProductDependencies = (
+				A10D0003307F000000000001 /* Sparkle */,
+			);
 			productName = tidest;
 			productReference = 706593DE307DDB6200F5EF8A /* tidest.app */;
 			productType = "com.apple.product-type.application";
@@ -185,6 +193,9 @@
 			);
 			mainGroup = 706593D5307DDB6200F5EF8A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A10D0002307F000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 706593DF307DDB6200F5EF8A /* Products */;
 			projectDirPath = "";
@@ -196,6 +207,22 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A10D0002307F000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {kind = exactVersion; version = 2.10.1; };
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10D0003307F000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10D0002307F000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		706593DC307DDB6200F5EF8A /* Resources */ = {
@@ -390,7 +417,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.8;
+				MARKETING_VERSION = 2.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mixbayes.tidest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -425,7 +452,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.8;
+				MARKETING_VERSION = 2.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mixbayes.tidest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

@@ -102,22 +102,29 @@ Tidest checks permissions when it starts or is reopened. Use **Open System Setti
 
 ## Local data and privacy
 
-Opening **About Tidest** automatically checks `https://tidest.app/api/update`. When a newer version is available, Tidest shows its version and asks whether to download it. Only choosing **Download** opens the installation-package link in your default browser. Install it after downloading. You can also check again manually. About and update checks do not require Accessibility permission. Update checks do not send your settings or window records.
+Tidest checks the signed GitHub update feed in the background every 24 hours, using the last check time across restarts. A new version adds a small upgrade mark to the menu-bar icon and the About menu item, plus a clickable reminder shown once per version on this Mac. Background checks do not open About or show update dialogs, and failures do not interrupt your work. Clicking the reminder opens About with the known version and a **Download** button; opening About again uses the saved update information without another check. The upgrade marks remain after dismissing the reminder or viewing About and disappear after the update is installed.
 
-Tidest stores its settings, window records, and usage counts on your Mac, with no analytics upload service.
+Choose **Download** to download inside Tidest with progress and cancellation. Sparkle revalidates the offered update when you choose to download it. Once it is ready, choose **Restart and update** or **Later**. Later keeps the current version running; you can restart from About, or let the update finish when you next quit Tidest. Closing About does not cancel a download. Update failures do not prevent you from using the current version. About and update checks do not require Accessibility permission or send your settings or window records.
+
+Updates use [Sparkle 2](https://sparkle-project.org/). Its installer and relaunch helper are bundled inside Tidest; there is no separate application to install. macOS may ask for administrator authorization if the installation location requires it. Versions without the in-app updater need one manual installation before they can use this flow.
+
+Tidest stores its settings, window records, and usage counts on your Mac. Release builds send anonymous daily activity information to PostHog by default to understand how many installations use Tidest each day. Turn this off in **Settings → General → Send anonymous usage information**.
+
+Activity is recorded only when you open a panel or interact with Tidest; running in the background does not count. At most one successful report is sent per day in the Asia/Shanghai time zone. A random installation ID stored on your Mac survives restarts; separate Macs count separately. Reports contain only that ID, the interaction time, and the app version, without window titles, screenshots, file paths, or browser URLs. They do not create person profiles or infer location from IP addresses. Failed reports never interrupt your work; another interaction after a minute can retry. Entirely offline days are not uploaded later. Development builds, tests, and UI previews do not send data to the live project.
 
 - **Switcher previews** stay in memory and are cleared when Tidest quits.
 - **Docked windows** save their app, title, window identity, dimensions, order, and last preview across restarts.
 - **Kept windows** also save supported Finder folders, Terminal directories, or browser tab URLs.
 - **Preferences and window records** use macOS `UserDefaults`, the system's local settings storage.
 - **Usage counts** store only daily totals and the counting start date, with no action history or uploads.
+- **Daily activity markers** store the random installation ID and the most recent successfully reported Beijing calendar date locally to avoid duplicate reports across restarts.
 - **Dock previews** are PNG files in `~/Library/Application Support/com.mixbayes.tidest/PinnedPreviews/`. Removing an item deletes its corresponding preview.
 
 Saved previews can contain window contents, and browser URLs can include query parameters. Keep this in mind when sharing screenshots, preferences, or diagnostic material.
 
 ## Build from source
 
-The current project requires **macOS 14.0 or later**, as configured in `tidest.xcodeproj`, and Xcode with support for the macOS APIs used by the project. No third-party package installation is needed.
+The current project requires **macOS 14.0 or later**, as configured in `tidest.xcodeproj`, and Xcode with support for the macOS APIs used by the project. Xcode automatically resolves the pinned Sparkle 2.10.1 dependency.
 
 Open `tidest.xcodeproj` in Xcode, select the `tidest` scheme, choose your own signing team if needed, and run.
 

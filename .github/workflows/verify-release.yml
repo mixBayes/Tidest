@@ -53,7 +53,7 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose=4 \
             "$download_dir/Tidest-${RELEASE_TAG#v}.dmg"
           echo "source_commit=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")" >> "$GITHUB_OUTPUT"
-          echo "Verified [Tidest ${RELEASE_TAG#v}](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG): release proof, all four assets, build provenance and Apple notarization." >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified [Tidest ${RELEASE_TAG#v}](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG): release proof, all release assets, build provenance and Apple notarization." >> "$GITHUB_STEP_SUMMARY"
 
   sync-deployment:
     name: Update verified deployment status

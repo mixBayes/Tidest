@@ -64,6 +64,36 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor
+    func testAnonymousUsageSwitchFitsAndCanBeChangedInEveryLanguage() throws {
+        for (language, general, label) in [
+            ("zh-Hans", "通用", "发送匿名使用信息"),
+            ("zh-Hant", "一般", "傳送匿名使用資訊"),
+            ("en", "General", "Send anonymous usage information"),
+            ("ja", "一般", "匿名の使用情報を送信"),
+            ("ko", "일반", "익명 사용 정보 보내기")
+        ] {
+            let app = launchSettings(language: language)
+            selectSettingsTab(general, in: app)
+            app.activate()
+            let toggle = app.descendants(matching: .any)["anonymousUsageToggle"].firstMatch
+            XCTAssertTrue(toggle.waitForExistence(timeout: 2))
+            XCTAssertTrue(app.staticTexts[label].exists, app.debugDescription)
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+                (object as? XCUIElement)?.isHittable == true
+            }, object: toggle)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 3), .completed, app.debugDescription)
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(toggle.frame))
+            let initial = String(describing: try XCTUnwrap(toggle.value))
+            toggle.click()
+            XCTAssertNotEqual(String(describing: try XCTUnwrap(toggle.value)), initial)
+            toggle.click()
+            XCTAssertEqual(String(describing: try XCTUnwrap(toggle.value)), initial)
+            saveScreenshot(app, name: "anonymous-usage-\(language)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testAboutIsASeparateWindow() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-about", "--ui-preview-language=zh-Hans", "--ui-preview-update=up-to-date"]
