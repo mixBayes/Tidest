@@ -7,9 +7,11 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let shortcut = GlobalShortcut()
     private let layoutShortcut = GlobalShortcut()
+    private let multiLayoutShortcut = GlobalShortcut()
     private let pinShortcut = GlobalShortcut()
     private let switcher = SwitcherController()
     private let quickLayout = QuickLayoutController()
+    private lazy var multiLayout = MultiWindowLayoutController(settings: settings)
     private let settings = AppSettings.shared
     private lazy var pinnedWindows = PinnedWindowsController(settings: settings, catalog: switcher.catalog)
     private var guideWindow: NSWindow?
@@ -92,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             switcher.showPreview(count: count)
             return
         }
+        if arguments.contains("--ui-preview-multi-layout") {
+            multiLayout.present(preview: true)
+            return
+        }
         if arguments.contains("--ui-preview-layout") {
             quickLayout.showPreview(constrained: arguments.contains("--ui-preview-layout-constrained"))
             return
@@ -125,8 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         shortcut.onPress = { [weak self] direction in
             guard let self else { return }
             refreshPermissions()
-            guard permissions.accessibilityGranted else { return }
+            guard permissions.accessibilityGranted, !multiLayout.isApplying else { return }
             quickLayout.dismiss()
+            multiLayout.dismiss()
             pinnedWindows.cancelInteraction()
             switcher.press(direction, captureEnabled: permissions.screenCaptureGranted)
         }
@@ -134,22 +141,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         layoutShortcut.onPress = { [weak self] _ in
             guard let self else { return }
             refreshPermissions()
-            guard permissions.accessibilityGranted, !isRecordingShortcut else { return }
+            guard permissions.accessibilityGranted, !isRecordingShortcut, !multiLayout.isApplying else { return }
             switcher.dismiss()
             pinnedWindows.cancelInteraction()
+            multiLayout.dismiss()
             quickLayout.present()
         }
         layoutShortcut.onRelease = { [weak self] in self?.quickLayout.releaseShortcutKey() }
         pinShortcut.onPress = { [weak self] _ in
             guard let self else { return }
             refreshPermissions()
-            guard permissions.accessibilityGranted, settings.pinningEnabled, !isRecordingShortcut,
+            guard permissions.accessibilityGranted, settings.pinningEnabled, !isRecordingShortcut, !multiLayout.isApplying,
                   !pinnedWindows.isShortcutHeld else { return }
             switcher.dismiss()
             quickLayout.dismiss()
+            multiLayout.dismiss()
             pinnedWindows.pressShortcut()
         }
         pinShortcut.onRelease = { [weak self] in self?.pinnedWindows.releaseShortcut() }
+        multiLayoutShortcut.onPress = { [weak self] _ in self?.showMultiWindowLayout() }
         startPermissionPolling()
         refreshPermissions()
         if let guide = permissions.startupGuide {
@@ -200,7 +210,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         addAction(settings.text("设置"), #selector(showSettings), key: ",")
         menu.addItem(.separator())
         addShortcut("窗口切换", settings.shortcut)
-        addShortcut("快速布局", settings.layoutShortcut)
+        addShortcut("窗口定位", settings.layoutShortcut)
+        let multiTitle = settings.multiLayoutShortcut.map { settings.text("%@ · %@", settings.text("快速布局"), $0.symbolDisplayName) } ?? settings.text("快速布局…")
+        addAction(multiTitle, #selector(showMultiWindowLayout))
+        menu.items.last?.setAccessibilityIdentifier("openMultiWindowLayout")
+        if multiLayout.undoAvailable {
+            addAction(settings.text("撤销上次快速布局"), #selector(undoMultiWindowLayout))
+        }
         if settings.pinningEnabled { addShortcut("拾取窗口", settings.pinShortcut) }
         addAction(settings.text("使用说明"), #selector(showUsageGuide))
         addAction(settings.text("使用统计"), #selector(showStatistics))
@@ -253,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showUsageGuide() {
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         if usageWindow == nil {
             let window = NSWindow(contentRect: CGRect(origin: .zero, size: UsageGuideView.windowSize),
@@ -274,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showStatistics() {
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         if statisticsWindow == nil {
             let window = NSWindow(contentRect: CGRect(origin: .zero, size: UsageStatisticsView.windowSize),
@@ -295,13 +313,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func presentGuide(_ guide: PermissionGuide, manuallyOpened: Bool) {
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         if guide == .accessibility && !isPreview {
             shortcut.stop()
             layoutShortcut.stop()
+            multiLayoutShortcut.stop()
             pinShortcut.stop()
             switcher.stop()
             quickLayout.stop()
+            multiLayout.stop()
             pinnedWindows.stop()
             settingsWindow?.makeFirstResponder(nil)
             settingsWindow?.orderOut(nil)
@@ -352,6 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showSettings() {
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         refreshPermissions()
         guard isPreview || permissions.accessibilityGranted else {
@@ -368,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 onShortcutChange: { [weak self] value in self?.changeShortcut(value) },
                 onRecordingChange: { [weak self] recording in self?.setShortcutRecording(recording) },
                 onLayoutShortcutChange: { [weak self] value in self?.changeLayoutShortcut(value) },
+                onMultiLayoutShortcutChange: { [weak self] value in self?.changeMultiLayoutShortcut(value) },
                 onPinShortcutChange: { [weak self] value in self?.changePinShortcut(value) },
                 onPinEnabledChange: { [weak self] enabled in self?.setPinningEnabled(enabled) }))
             window.center()
@@ -382,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateReminder.hide()
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         if aboutWindow == nil {
             let window = NSWindow(contentRect: CGRect(origin: .zero, size: AboutView.windowSize),
@@ -457,11 +481,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func changeShortcut(_ value: WindowShortcut) -> String? {
+        if let multi = settings.multiLayoutShortcut, value.hasSameKeys(as: multi) { return "这个快捷键用于快速布局，请选择其他快捷键。" }
         guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
-        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于快速布局，请选择其他快捷键。" }
+        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于窗口定位，请选择其他快捷键。" }
         guard !value.hasSameKeys(as: settings.pinShortcut) else { return "这个快捷键用于拾取窗口，请选择其他快捷键。" }
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         permissions.refresh()
         if !isPreview && permissions.accessibilityGranted {
@@ -477,11 +503,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func changeLayoutShortcut(_ value: WindowShortcut) -> String? {
+        if let multi = settings.multiLayoutShortcut, value.hasSameKeys(as: multi) { return "这个快捷键用于快速布局，请选择其他快捷键。" }
         guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
         guard !value.hasSameKeys(as: settings.shortcut) else { return "这个快捷键用于窗口切换，请选择其他快捷键。" }
         guard !value.hasSameKeys(as: settings.pinShortcut) else { return "这个快捷键用于拾取窗口，请选择其他快捷键。" }
         switcher.dismiss()
         quickLayout.dismiss()
+        multiLayout.dismiss()
         pinnedWindows.cancelInteraction()
         permissions.refresh()
         if !isPreview && permissions.accessibilityGranted {
@@ -496,10 +524,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return nil
     }
 
+    @objc func showMultiWindowLayout() {
+        refreshPermissions()
+        guard !isRecordingShortcut, !multiLayout.isApplying else { return }
+        guard isPreview || permissions.accessibilityGranted else { showGuide(); return }
+        switcher.dismiss()
+        quickLayout.stop()
+        pinnedWindows.cancelInteraction()
+        multiLayout.present(preview: isPreview)
+    }
+
+    @objc private func undoMultiWindowLayout() {
+        guard !multiLayout.isApplying else { return }
+        switcher.dismiss()
+        quickLayout.stop()
+        pinnedWindows.cancelInteraction()
+        multiLayout.presentUndo()
+    }
+
+    private func changeMultiLayoutShortcut(_ value: WindowShortcut?) -> String? {
+        if let value {
+            guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
+            guard !value.hasSameKeys(as: settings.shortcut) else { return "这个快捷键用于窗口切换，请选择其他快捷键。" }
+            guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于窗口定位，请选择其他快捷键。" }
+            guard !value.hasSameKeys(as: settings.pinShortcut) else { return "这个快捷键用于拾取窗口，请选择其他快捷键。" }
+            permissions.refresh()
+            if !isPreview && permissions.accessibilityGranted {
+                let status = multiLayoutShortcut.start(value)
+                guard status == noErr else { return status == eventHotKeyExistsErr ? "这个快捷键已被占用，请换一个。" : "暂时无法启用这个快捷键，请再试一次。" }
+            }
+        } else { multiLayoutShortcut.stop() }
+        settings.multiLayoutShortcut = value
+        permissions.multiLayoutShortcutMessage = nil
+        return nil
+    }
+
+    private func startMultiLayoutShortcut() {
+        guard let value = settings.multiLayoutShortcut else { multiLayoutShortcut.stop(); return }
+        guard ![settings.shortcut, settings.layoutShortcut, settings.pinShortcut].contains(where: { $0.hasSameKeys(as: value) }) else {
+            multiLayoutShortcut.stop()
+            permissions.multiLayoutShortcutMessage = "这个快捷键已被占用，请在设置中换一个。"
+            return
+        }
+        let status = multiLayoutShortcut.start(value)
+        permissions.multiLayoutShortcutMessage = status == noErr ? nil : "这个快捷键已被占用，请在设置中换一个。"
+    }
+
     private func changePinShortcut(_ value: WindowShortcut) -> String? {
+        if let multi = settings.multiLayoutShortcut, value.hasSameKeys(as: multi) { return "这个快捷键用于快速布局，请选择其他快捷键。" }
         guard value.isValid else { return "请按住 Control、Option 或 Command，再按另一个键。" }
         guard !value.hasSameKeys(as: settings.shortcut) else { return "这个快捷键用于窗口切换，请选择其他快捷键。" }
-        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于快速布局，请选择其他快捷键。" }
+        guard !value.hasSameKeys(as: settings.layoutShortcut) else { return "这个快捷键用于窗口定位，请选择其他快捷键。" }
         pinnedWindows.cancelInteraction()
         permissions.refresh()
         if !isPreview && permissions.accessibilityGranted && settings.pinningEnabled {
@@ -535,8 +610,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if recording {
             shortcut.stop()
             layoutShortcut.stop()
+            multiLayoutShortcut.stop()
             pinShortcut.stop()
             quickLayout.dismiss()
+            multiLayout.dismiss()
             pinnedWindows.stop()
         }
         else {
@@ -566,12 +643,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if permissions.screenCaptureGranted && permissions.accessibilityGranted { switcher.scheduleStartupPreviews() }
         }
         if !permissions.accessibilityGranted {
-            if accessibilityChanged || shortcut.registeredShortcut != nil || layoutShortcut.registeredShortcut != nil || pinShortcut.registeredShortcut != nil || switcher.isPresented || quickLayout.isPresented || pinnedWindows.isEnabled {
+            if accessibilityChanged || shortcut.registeredShortcut != nil || layoutShortcut.registeredShortcut != nil || pinShortcut.registeredShortcut != nil || multiLayoutShortcut.registeredShortcut != nil || switcher.isPresented || quickLayout.isPresented || multiLayout.isPresented || pinnedWindows.isEnabled {
                 shortcut.stop()
                 layoutShortcut.stop()
+                multiLayoutShortcut.stop()
                 pinShortcut.stop()
                 switcher.stop()
                 quickLayout.stop()
+                multiLayout.stop()
                 pinnedWindows.stop()
             }
             if aboutWindow?.isVisible != true, usageWindow?.isVisible != true, statisticsWindow?.isVisible != true,
@@ -605,7 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isPreview: Bool { Self.isPreviewMode }
 
     private var hasShortcutMessage: Bool {
-        permissions.shortcutMessage != nil || permissions.layoutShortcutMessage != nil || permissions.pinShortcutMessage != nil
+        permissions.shortcutMessage != nil || permissions.layoutShortcutMessage != nil || permissions.pinShortcutMessage != nil || permissions.multiLayoutShortcutMessage != nil
     }
 
     private func startShortcuts() {
@@ -614,9 +693,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         permissions.layoutShortcutMessage = layoutStatus == noErr ? nil :
             (layoutStatus == eventHotKeyExistsErr ? "这个快捷键已被占用，请在设置中换一个。" : "暂时无法启用快捷键，请在设置中重新选择。")
         startPinning()
+        startMultiLayoutShortcut()
         guard !settings.shortcut.hasSameKeys(as: settings.layoutShortcut) else {
             shortcut.stop()
-            permissions.shortcutMessage = "这个快捷键用于快速布局，请选择其他快捷键。"
+            permissions.shortcutMessage = "这个快捷键用于窗口定位，请选择其他快捷键。"
             return
         }
         let wasRegistered = shortcut.registeredShortcut != nil
@@ -644,7 +724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         guard !settings.pinShortcut.hasSameKeys(as: settings.layoutShortcut) else {
             pinShortcut.stop()
-            permissions.pinShortcutMessage = "这个快捷键用于快速布局，请选择其他快捷键。"
+            permissions.pinShortcutMessage = "这个快捷键用于窗口定位，请选择其他快捷键。"
             return
         }
         guard pinnedWindows.start(captureEnabled: permissions.screenCaptureGranted) else {
@@ -706,9 +786,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         permissionTimer?.invalidate()
         shortcut.stop()
         layoutShortcut.stop()
+        multiLayoutShortcut.stop()
         pinShortcut.stop()
         switcher.stop()
         quickLayout.stop()
+        multiLayout.stop()
         pinnedWindows.stop()
         switcher.catalog.stop()
         pinnedWindows.finishSavingPreviews()

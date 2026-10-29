@@ -7,25 +7,28 @@ struct SettingsView: View {
     private static let sectionPadding: CGFloat = 2
 
     private enum SettingsTab { case windows, general }
-    private enum ShortcutField { case switching, layout, pinning }
+    private enum ShortcutField { case switching, layout, multiLayout, pinning }
 
     @ObservedObject var permissions: PermissionStore
     @ObservedObject var settings: AppSettings
     var onShortcutChange: (WindowShortcut) -> String?
     var onRecordingChange: (Bool) -> Void
     var onLayoutShortcutChange: (WindowShortcut) -> String?
+    var onMultiLayoutShortcutChange: (WindowShortcut?) -> String?
     var onPinShortcutChange: (WindowShortcut) -> String?
     var onPinEnabledChange: (Bool) -> Void
     @State private var selectedTab = SettingsTab.windows
     @State private var recordingShortcut: ShortcutField?
     @State private var shortcutMessage: String?
     @State private var layoutShortcutMessage: String?
+    @State private var multiLayoutShortcutMessage: String?
     @State private var pinShortcutMessage: String?
 
     init(permissions: PermissionStore, settings: AppSettings? = nil,
          onShortcutChange: @escaping (WindowShortcut) -> String?,
          onRecordingChange: @escaping (Bool) -> Void,
          onLayoutShortcutChange: @escaping (WindowShortcut) -> String? = { _ in nil },
+         onMultiLayoutShortcutChange: @escaping (WindowShortcut?) -> String? = { _ in nil },
          onPinShortcutChange: @escaping (WindowShortcut) -> String? = { _ in nil },
          onPinEnabledChange: @escaping (Bool) -> Void = { _ in }) {
         self.permissions = permissions
@@ -33,6 +36,7 @@ struct SettingsView: View {
         self.onShortcutChange = onShortcutChange
         self.onRecordingChange = onRecordingChange
         self.onLayoutShortcutChange = onLayoutShortcutChange
+        self.onMultiLayoutShortcutChange = onMultiLayoutShortcutChange
         self.onPinShortcutChange = onPinShortcutChange
         self.onPinEnabledChange = onPinEnabledChange
     }
@@ -56,6 +60,9 @@ struct SettingsView: View {
                         Section {
                             quickLayoutSettings
                                 .padding(Self.sectionPadding)
+                        }
+                        Section {
+                            multiLayoutSettings.padding(Self.sectionPadding)
                         }
                         Section {
                             pinningSettings
@@ -212,10 +219,10 @@ struct SettingsView: View {
 
     private var quickLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            permissionLabel("快速布局", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2",
+            permissionLabel("窗口定位", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2",
                             iconColor: Color(red: 0.82, green: 0.40, blue: 0.12))
             HStack(spacing: 12) {
-                Text(settings.text("快速布局快捷键"))
+                Text(settings.text("窗口定位快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 ShortcutRecorder(shortcut: settings.layoutShortcut, settings: settings,
@@ -223,7 +230,7 @@ struct SettingsView: View {
                                  onChange: { layoutShortcutMessage = onLayoutShortcutChange($0) },
                                  onInvalid: { layoutShortcutMessage = "请按住 Control、Option 或 Command，再按另一个键。" },
                                  onRecordingChange: { recording in updateRecording(recording, for: .layout) },
-                                 accessibilityIdentifier: "layoutShortcutRecorder", labelKey: "快速布局快捷键")
+                                 accessibilityIdentifier: "layoutShortcutRecorder", labelKey: "窗口定位快捷键")
                     .frame(width: 180, height: 28)
             }
             HStack {
@@ -240,6 +247,36 @@ struct SettingsView: View {
                     .font(.system(size: 11)).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("layoutShortcutMessage")
+            }
+        }
+    }
+
+    private var multiLayoutSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            permissionLabel("快速布局", purpose: "选择结构，为每个区域分配窗口，再一起应用", icon: "rectangle.3.group",
+                            iconColor: .blue)
+            HStack {
+                Text(settings.text("快速布局快捷键"))
+                Spacer()
+                ShortcutRecorder(shortcut: settings.multiLayoutShortcut, settings: settings,
+                    isRecording: recordingBinding(for: .multiLayout),
+                    onChange: { multiLayoutShortcutMessage = onMultiLayoutShortcutChange($0) },
+                    onInvalid: { multiLayoutShortcutMessage = "请按住 Control、Option 或 Command，再按另一个键。" },
+                    onRecordingChange: { updateRecording($0, for: .multiLayout) },
+                    accessibilityIdentifier: "multiLayoutShortcutRecorder", labelKey: "快速布局快捷键")
+                    .frame(width: 180, height: 28)
+            }
+            HStack {
+                Text(settings.text("默认未设置，可从菜单栏打开快速布局。"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button(settings.text("清除快捷键")) { multiLayoutShortcutMessage = onMultiLayoutShortcutChange(nil) }
+                    .disabled(settings.multiLayoutShortcut == nil || isRecordingAnyShortcut)
+                    .accessibilityIdentifier("clearMultiLayoutShortcut")
+            }
+            if let message = multiLayoutShortcutMessage ?? permissions.multiLayoutShortcutMessage {
+                Text(settings.text(message)).font(.system(size: 11)).foregroundStyle(.orange)
+                    .accessibilityIdentifier("multiLayoutShortcutMessage")
             }
         }
     }
@@ -311,6 +348,7 @@ struct SettingsView: View {
             switch field {
             case .switching: shortcutMessage = nil
             case .layout: layoutShortcutMessage = nil
+            case .multiLayout: multiLayoutShortcutMessage = nil
             case .pinning: pinShortcutMessage = nil
             }
         }

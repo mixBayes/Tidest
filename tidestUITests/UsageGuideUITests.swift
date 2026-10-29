@@ -8,7 +8,7 @@ final class UsageGuideUITests: XCTestCase {
         let app = launchGuide(tiled: true)
         app.buttons["usagePlayback"].click()
         XCTAssertEqual(app.buttons["usagePlayback"].label, "继续播放")
-        for topic in ["switching", "layout", "docking"] {
+        for topic in ["switching", "layout", "multiLayout", "docking"] {
             app.buttons["usageTopic-\(topic)"].click()
             XCTAssertTrue(app.buttons["usageTopic-\(topic)"].isSelected)
             for step in 0..<3 {
@@ -28,7 +28,7 @@ final class UsageGuideUITests: XCTestCase {
     @MainActor
     func testAnimationAdvancesAndPauseKeepsTheSelectedStep() {
         let app = launchGuide()
-        for topic in ["switching", "layout", "docking"] {
+        for topic in ["switching", "layout", "multiLayout", "docking"] {
             app.buttons["usageTopic-\(topic)"].click()
             let completedStep = app.buttons["usageStep2"]
             expectation(for: NSPredicate { _, _ in completedStep.isSelected }, evaluatedWith: nil)
@@ -100,7 +100,7 @@ final class UsageGuideUITests: XCTestCase {
             XCTAssertTrue(app.sliders["usageProgress"].exists)
             app.sliders["usageProgress"].adjust(toNormalizedSliderPosition: 0.5)
             XCTAssertTrue(app.buttons["usageStep1"].isSelected)
-            for topic in ["switching", "layout", "docking"] {
+            for topic in ["switching", "layout", "multiLayout", "docking"] {
                 app.buttons["usageTopic-\(topic)"].click()
                 for step in 0..<3 {
                     let button = app.buttons["usageStep\(step)"]

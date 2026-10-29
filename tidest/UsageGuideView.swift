@@ -2,12 +2,13 @@ import AppKit
 import SwiftUI
 
 private enum UsageTopic: String, CaseIterable {
-    case switching, layout, docking
+    case switching, layout, multiLayout, docking
 
     var title: String {
         switch self {
         case .switching: "窗口切换"
-        case .layout: "快速布局"
+        case .layout: "窗口定位"
+        case .multiLayout: "快速布局"
         case .docking: "窗口停靠"
         }
     }
@@ -16,20 +17,22 @@ private enum UsageTopic: String, CaseIterable {
         switch self {
         case .switching: "rectangle.3.group"
         case .layout: "rectangle.split.2x2"
+        case .multiLayout: "rectangle.3.group.fill"
         case .docking: "sidebar.right"
         }
     }
 
-    @MainActor func shortcut(_ settings: AppSettings) -> WindowShortcut {
+    @MainActor func shortcut(_ settings: AppSettings) -> WindowShortcut? {
         switch self {
         case .switching: settings.shortcut
         case .layout: settings.layoutShortcut
+        case .multiLayout: settings.multiLayoutShortcut
         case .docking: settings.pinShortcut
         }
     }
 
     @MainActor func steps(_ settings: AppSettings) -> [String] {
-        let shortcut = shortcut(settings)
+        let shortcut = shortcut(settings) ?? settings.layoutShortcut
         switch self {
         case .switching:
             return [settings.text("按住 %@，按 %@ 打开窗口列表", shortcut.modifierName, shortcut.keyName),
@@ -39,6 +42,10 @@ private enum UsageTopic: String, CaseIterable {
             return [settings.text("鼠标移到窗口上，按 %@", shortcut.displayName),
                     settings.text("点击想要的位置，或按对应数字"),
                     settings.text("窗口自动移到所选位置")]
+        case .multiLayout:
+            return [settings.text("从菜单栏打开快速布局，选择布局起点"),
+                    settings.text("分割区域、调整比例，为每格选择窗口"),
+                    settings.text("确认目标显示器，点击应用布局")]
         case .docking:
             return [settings.text("按 %@，点一下要添加的窗口", shortcut.displayName),
                     settings.text("把预览移到停靠栏，再点一下"),
@@ -50,6 +57,7 @@ private enum UsageTopic: String, CaseIterable {
         switch self {
         case .switching: "也可以用方向键或鼠标选择，按 Esc 取消。"
         case .layout: "按 1–9 选择位置，空格铺满屏幕，Esc 取消。"
+        case .multiLayout: "预览期间窗口保持原位。模板只保存结构；撤销上次应用可尽力还原窗口。"
         case .docking: "移到屏幕边缘展开停靠栏。拖出项目可移除；点图钉可在窗口关闭后保留。"
         }
     }
@@ -149,12 +157,12 @@ struct UsageGuideView: View {
                     .accessibilityValue("\(Int((progress * 100).rounded()))%")
                     .accessibilityIdentifier("usageProgress")
                     HStack(spacing: 10) {
-                        Text(topic.shortcut(settings).symbolDisplayName)
+                        Text(topic.shortcut(settings)?.symbolDisplayName ?? settings.text("菜单栏 → 快速布局"))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                            .accessibilityLabel(topic.shortcut(settings).displayName)
+                            .accessibilityLabel(topic.shortcut(settings)?.displayName ?? settings.text("菜单栏 → 快速布局"))
                             .accessibilityIdentifier("usageShortcut")
                         Text("0:\(String(format: "%02d", Int(progress * UsageTimeline.duration))) / 0:09")
                             .font(.system(size: 11).monospacedDigit())
@@ -298,12 +306,29 @@ private struct UsageDemo: View {
             switch topic {
             case .switching: switching
             case .layout: layout
+            case .multiLayout: multiLayout
             case .docking: docking
             }
         }
         .frame(width: width, height: height)
         .clipped()
         .allowsHitTesting(false)
+    }
+
+    private var multiLayout: some View {
+        HStack(spacing: 4) {
+            demoWindow("Safari", symbol: "safari", tint: .blue)
+            VStack(spacing: 4) {
+                demoWindow("Finder", symbol: "folder", tint: .cyan)
+                demoWindow("Notes", symbol: "note.text", tint: .orange)
+            }
+        }
+        .padding(20)
+        .overlay(alignment: .bottom) {
+            Text(settings.text(timeline.step < 2 ? "预览草稿" : "应用布局"))
+                .font(.system(size: 11, weight: .semibold)).padding(6)
+                .background(.regularMaterial, in: Capsule())
+        }
     }
 
     private var switching: some View {
@@ -351,7 +376,7 @@ private struct UsageDemo: View {
                 }
                 .offset(x: blend(75, 8, placement), y: blend(53, 30, placement))
             VStack(alignment: .leading, spacing: 8) {
-                Text(settings.text("快速布局")).font(.system(size: 10, weight: .semibold))
+                Text(settings.text("窗口定位")).font(.system(size: 10, weight: .semibold))
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(43), spacing: 5), count: 3), spacing: 5) {
                     ForEach(QuickLayout.allCases) { item in
                         let selected = time >= 3.7 && item == .left
