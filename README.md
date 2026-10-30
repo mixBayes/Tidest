@@ -11,9 +11,10 @@ The release workflow builds Developer ID signed, Apple notarized packages with v
 ## Features
 
 - **Switch windows:** browse horizontal previews or a scrollable tile view using the keyboard, trackpad, or mouse.
-- **Quick layout:** place the window under your pointer in a half, quarter, or the full available screen area.
+- **Window positioning:** place the window under your pointer in a half, quarter, or the full available screen area.
+- **Quick layout:** choose a partition, assign a window to each region, and apply together; split regions, drag dividers, and save structure templates.
 - **Window Dock:** keep windows at either screen edge, reorder them, and choose which ones stay available after closing.
-- **Make it yours:** customize all three shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean.
+- **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. The new Quick layout shortcut starts unset.
 
 ## Get started
 
@@ -22,7 +23,8 @@ Open Tidest and follow the permission guide. Accessibility lets Tidest bring you
 | Action | Default shortcut |
 | --- | --- |
 | Switch windows | Option + Tab |
-| Quick layout | Option + Q |
+| Window positioning | Option + Q |
+| Quick layout | Unset; open from the menu bar |
 | Pick Up Window | Option + W |
 
 Change shortcuts in **Settings → Windows**. Click the current combination, hold Control, Option, or Command, then press another key; Shift may be added. Press Esc to cancel. If a shortcut is already in use, Tidest keeps the previous combination. The menu bar shows your current shortcuts.
@@ -41,7 +43,7 @@ Click a preview to switch immediately. Press Esc or click outside the panel to c
 
 Windows follow their front-to-back order on the current desktop. Minimized windows are restored when selected. Each preview keeps the window's proportions, and refreshes preserve your selection and scroll position.
 
-### Quick layout
+### Window positioning
 
 Press **Option + Q**, then point at a visible part of the window you want to arrange. Click a layout or press its number:
 
@@ -53,6 +55,26 @@ Press **Option + Q**, then point at a visible part of the window you want to arr
 Corners use a quarter of the screen. Layouts use the available area on the screen under your pointer, leaving room for the menu bar and macOS Dock.
 
 The panel stays open after you release Option. Press Esc or click outside to cancel.
+
+### Quick layout
+
+Choose **Quick layout…** from the menu bar, or configure its independent shortcut in **Settings → Windows**. Existing Option + Q and custom positioning shortcuts keep their behavior.
+
+1. Check the target display in the upper right. It starts at the display under your pointer and stays fixed during preview.
+2. Choose **Two columns**, **Two rows**, **Large left, two right**, **Four-cell grid**, or **Blank layout**.
+3. Select a region and split it into columns or rows. Drag dividers to adjust proportions. Merge the two direct children of the same split; merge nested splits from the inside first.
+4. Click each region to search app names or window titles. Use arrow keys and Enter to select, or Esc to return to preview. Each window can occupy only one region.
+5. Once every region has a valid window, click **Apply layout**. From the keyboard, Enter in preview opens confirmation; a separate Enter applies. Enter in the window picker only selects its window.
+
+Editing, choosing windows, switching the target, and saving templates leave real windows in place. Esc in the main preview cancels. Splitting or merging assigned regions asks before clearing only affected choices; ratio changes retain assignments. **Undo draft edit** only changes the preview.
+
+**Save as template** stores a name, split structure, and normalized ratios. It excludes apps, windows, titles, paths, and display identities. Right-click a card in **My templates** to rename or delete it. Splitting depends on actual display space and usable preview sizes; merge small regions or choose a larger display.
+
+Candidates are movable, resizable standard windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. App icons and titles work without Screen Recording permission.
+
+Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview and exposes **Undo last Quick layout** in the menu bar; partial results also offer undo in the panel. Undo tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous undo operation.
+
+Disconnecting or reconfiguring displays stops further placement and requires explicit target confirmation. Undo blocks stale coordinates after a display configuration change. See the [macOS validation checklist](docs/QUICK_LAYOUT_VALIDATION.md) for remaining platform verification.
 
 ### Window Dock
 
@@ -84,11 +106,11 @@ Saved folders, directories, and tabs follow changes while the window is open. Re
 
 ## Settings and permissions
 
-Open **How to use** from the menu bar for animated examples of window switching, quick layout, and the Window Dock, using your current shortcuts. Pause, replay, drag the progress bar, or click a step to inspect it. Seeking pauses at that position; choose **Resume** to continue. With macOS **Reduce motion** enabled, drag the bar or choose a static step instead. Reading the guide does not require permissions.
+Open **How to use** from the menu bar for animated examples of window switching, window positioning, Quick layout, and the Window Dock, using your current shortcuts. Pause, replay, drag the progress bar, or click a step to inspect it. Seeking pauses at that position; choose **Resume** to continue. With macOS **Reduce motion** enabled, drag the bar or choose a static step instead. Reading the guide does not require permissions.
 
 **Settings → Windows** contains preview styles, shortcuts, and the Window Dock toggle. **Settings → General** contains language and permission settings. Tidest follows your system language until you choose one, and applies changes immediately.
 
-In the menu bar, **Usage Statistics** sits below **How to use** and shows today's uses, all-time uses, and a seven-day bar chart. Hover over the chart to highlight a day and see its count. The info button explains the counting rules: each successful window switch, quick layout, dock addition, or opening from the dock counts once; canceled or failed actions and simply opening a panel do not count. Counting starts when a version with statistics first launches; earlier usage cannot be recovered.
+In the menu bar, **Usage Statistics** sits below **How to use** and shows today's uses, all-time uses, and a seven-day bar chart. Hover over the chart to highlight a day and see its count. The info button explains the counting rules: each successful window switch, window positioning, complete Quick layout, dock addition, or opening from the dock counts once; canceled or failed actions and simply opening a panel do not count. Counting starts when a version with statistics first launches; earlier usage cannot be recovered.
 
 | Permission | Purpose |
 | --- | --- |
@@ -96,7 +118,7 @@ In the menu bar, **Usage Statistics** sits below **How to use** and shows today'
 | Screen Recording · Optional | Show window screenshots in the switcher and dock |
 | Automation · Per app | Save and reopen folders, terminal directories, and browser tabs for kept windows |
 
-Without Screen Recording, Tidest shows app icons and window titles; switching and quick layout remain available. Choose **Not now** to continue, and **Don't remind me again** to stop future reminders.
+Without Screen Recording, Tidest shows app icons and window titles; switching, positioning, and Quick layout remain available. Choose **Not now** to continue, and **Don't remind me again** to stop future reminders.
 
 Tidest checks permissions when it starts or is reopened. Use **Open System Settings** in General to manage them. macOS asks for Automation permission separately when Tidest reads or controls a supported app.
 
@@ -142,7 +164,7 @@ Tidest uses SwiftUI and AppKit, with Accessibility for window control and Screen
 
 ### Tests and UI previews
 
-Run the test suites with:
+Tidest is a macOS app. Geometry, draft, controller, and UI tests run with Xcode on macOS:
 
 ```sh
 xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \
@@ -162,7 +184,8 @@ Debug builds provide UI preview arguments for development. These previews use sa
 | Usage guide | `--ui-preview-usage`; add `--ui-preview-usage-static` for static steps |
 | Update states | `--ui-preview-about --ui-preview-update=<state>`, where state is `checking`, `up-to-date`, `available`, `failed`, or `download-failed`; uses sample responses and never opens a browser |
 | Window switcher | `--ui-preview-switcher`; optionally `--ui-preview-tiled`, `--ui-preview-count=150`, `--ui-preview-thumbnails`, or `--ui-preview-refresh` |
-| Quick layout | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
+| Window positioning | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
+| Multi-window Quick layout | `--ui-preview-multi-layout`; optionally `--ui-preview-multi-layout-partial` for partial failure feedback |
 | Window Dock | `--ui-preview-pinned`; optionally `--ui-preview-count=20` |
 | Preview language | `--ui-preview-language=<code>`, where code is `en`, `zh-Hans`, `zh-Hant`, `ja`, or `ko` |
 | Enabled permissions in Settings preview | `--ui-preview-granted-accessibility` and `--ui-preview-granted-screen` |

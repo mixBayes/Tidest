@@ -57,7 +57,7 @@ struct QuickLayoutView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(settings.text("快速布局"))
+                Text(settings.text("窗口定位"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)

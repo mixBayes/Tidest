@@ -20,6 +20,7 @@ final class PermissionStore: ObservableObject {
     @Published var requestedScreenCapture = false
     @Published var shortcutMessage: String?
     @Published var layoutShortcutMessage: String?
+    @Published var multiLayoutShortcutMessage: String?
     @Published var pinShortcutMessage: String?
     private let preview: Bool
     private let defaults: UserDefaults

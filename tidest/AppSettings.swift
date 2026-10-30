@@ -82,6 +82,14 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    @Published var multiLayoutShortcut: WindowShortcut? {
+        didSet {
+            guard persistChanges else { return }
+            if let multiLayoutShortcut, let data = try? JSONEncoder().encode(multiLayoutShortcut) {
+                defaults.set(data, forKey: "multiWindowLayoutShortcut")
+            } else { defaults.removeObject(forKey: "multiWindowLayoutShortcut") }
+        }
+    }
     @Published var pinningEnabled: Bool {
         didSet { if persistChanges { defaults.set(pinningEnabled, forKey: "pinnedToolbarEnabled") } }
     }
@@ -112,11 +120,18 @@ final class AppSettings: ObservableObject {
         shortcut = savedShortcut.flatMap { $0.isValid ? $0 : nil } ?? .default
         let savedLayoutShortcut = defaults.data(forKey: "quickLayoutShortcut").flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
         layoutShortcut = savedLayoutShortcut.flatMap { $0.isValid ? $0 : nil } ?? .quickLayout
+        multiLayoutShortcut = defaults.data(forKey: "multiWindowLayoutShortcut")
+            .flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
+            .flatMap { $0.isValid ? $0 : nil }
         pinningEnabled = defaults.object(forKey: "pinnedToolbarEnabled") as? Bool ?? true
         pinnedDockSide = defaults.string(forKey: "pinnedDockSide").flatMap(PinnedDockSide.init(rawValue:)) ?? .right
         pinnedDisplayMode = defaults.string(forKey: "pinnedDisplayMode").flatMap(PinnedDisplayMode.init(rawValue:)) ?? .thumbnails
         let savedPinShortcut = defaults.data(forKey: "pinnedToolbarShortcut").flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
         pinShortcut = savedPinShortcut.flatMap { $0.isValid ? $0 : nil } ?? .pinWindow
+    }
+
+    func makeLayoutTemplateStore() -> LayoutTemplateStore {
+        LayoutTemplateStore(defaults: defaults, persistChanges: persistChanges)
     }
 
     var locale: Locale { Locale(identifier: language.rawValue) }

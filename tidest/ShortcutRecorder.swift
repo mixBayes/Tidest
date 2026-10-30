@@ -3,7 +3,7 @@ import Carbon
 import SwiftUI
 
 struct ShortcutRecorder: NSViewRepresentable {
-    let shortcut: WindowShortcut
+    let shortcut: WindowShortcut?
     let settings: AppSettings
     @Binding var isRecording: Bool
     let onChange: (WindowShortcut) -> Void
@@ -12,7 +12,7 @@ struct ShortcutRecorder: NSViewRepresentable {
     let accessibilityIdentifier: String
     let labelKey: String
 
-    init(shortcut: WindowShortcut, settings: AppSettings, isRecording: Binding<Bool>,
+    init(shortcut: WindowShortcut?, settings: AppSettings, isRecording: Binding<Bool>,
          onChange: @escaping (WindowShortcut) -> Void,
          onInvalid: @escaping () -> Void,
          onRecordingChange: @escaping (Bool) -> Void,
@@ -38,9 +38,9 @@ struct ShortcutRecorder: NSViewRepresentable {
     }
 
     func updateNSView(_ button: RecorderButton, context: Context) {
-        button.title = isRecording ? settings.text("请按下快捷键…") : shortcut.symbolDisplayName
+        button.title = isRecording ? settings.text("请按下快捷键…") : (shortcut?.symbolDisplayName ?? settings.text("未设置"))
         button.setAccessibilityIdentifier(accessibilityIdentifier)
-        button.setAccessibilityLabel(settings.text(labelKey) + ": " + (isRecording ? button.title : shortcut.displayName))
+        button.setAccessibilityLabel(settings.text(labelKey) + ": " + (isRecording ? button.title : (shortcut?.displayName ?? settings.text("未设置"))))
         button.recording = isRecording
         button.onRecordingChange = { value in
             isRecording = value
