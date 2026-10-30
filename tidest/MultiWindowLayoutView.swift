@@ -475,7 +475,8 @@ private struct LayoutDraftCanvas: View {
         let canDelete = (controller.draft?.root.leafIDs.count ?? 0) > 1
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
-                Rectangle().fill(hovered || revealing ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                    .opacity(revealing ? 0 : 1)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -684,9 +685,22 @@ private struct LayoutSplitTrace: View, Animatable {
             let curveProgress = phase(traceProgress, from: 0.1, to: 0.5)
             let edgeProgress = phase(traceProgress, from: 0.5, to: 1)
             let glowOpacity = 1 - phase(travelProgress, from: 0.75, to: 1)
+            let across = baseline + (breadth * ratio - baseline) * travelProgress
             func point(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
                 vertical ? CGPoint(x: across, y: along) : CGPoint(x: along, y: across)
             }
+            func fillRegion(from start: CGFloat, to end: CGFloat, color: Color) {
+                let extent = abs(end - start)
+                let rect = CGRect(origin: point(0, min(start, end)),
+                                  size: vertical ? CGSize(width: extent, height: length)
+                                      : CGSize(width: length, height: extent))
+                context.fill(Path(rect), with: .color(color))
+            }
+            // The moving divider pulls the highlighted cell out of the clicked
+            // edge; the rest of the original cell keeps its normal background.
+            fillRegion(from: baseline, to: across, color: highlight.opacity(0.22))
+            fillRegion(from: across, to: nearEdge ? breadth : 0, color: .white.opacity(0.055))
+
             var glow = context
             glow.addFilter(.blur(radius: 5))
             func drawTip(_ position: CGPoint) {
@@ -721,7 +735,6 @@ private struct LayoutSplitTrace: View, Animatable {
             if curveProgress == 0 { drawTip(apex) }
 
             if travelProgress > 0 {
-                let across = baseline + (breadth * ratio - baseline) * travelProgress
                 var divider = Path()
                 divider.move(to: point(0, across))
                 divider.addLine(to: point(length, across))
