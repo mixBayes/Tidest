@@ -273,7 +273,22 @@ private struct LayoutDraftCanvas: View {
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pointer: CGPoint?
+    @State private var splitOrigin: SplitOrigin?
+    @State private var holdingSplitButton = false
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+
+    private struct SplitOrigin {
+        let id = UUID()
+        let regionID: UUID
+        let edge: String
+    }
+
+    private var splittingRegion: LayoutRegion.Placement? {
+        guard let splitOrigin,
+              let placement = controller.draft?.root.placements().first(where: { $0.region.id == splitOrigin.regionID }),
+              case .split = placement.region else { return nil }
+        return placement
+    }
 
     private var hoveredRegion: UUID? {
         guard let pointer, !controller.isApplying, controller.outcomes.isEmpty else { return nil }
@@ -288,7 +303,8 @@ private struct LayoutDraftCanvas: View {
                         region(leaf, index: index, size: geometry.size)
                     }
                     ForEach(draft.root.placements(), id: \.region.id) { placement in
-                        if case .split(_, let axis, let ratio, _, _) = placement.region {
+                        if case .split(_, let axis, let ratio, _, _) = placement.region,
+                           placement.region.id != splittingRegion?.region.id {
                             divider(placement, axis: axis, ratio: ratio, size: geometry.size)
                         }
                     }
@@ -299,7 +315,8 @@ private struct LayoutDraftCanvas: View {
                     boundary(vertical: true, origin: .zero, length: geometry.size.height, size: geometry.size)
                     boundary(vertical: true, origin: CGPoint(x: geometry.size.width, y: 0), length: geometry.size.height, size: geometry.size)
                     ForEach(draft.root.placements(), id: \.region.id) { placement in
-                        if case .split(_, let axis, let ratio, _, _) = placement.region {
+                        if case .split(_, let axis, let ratio, _, _) = placement.region,
+                           placement.region.id != splittingRegion?.region.id {
                             let rect = placement.frame
                             let vertical = axis == .columns
                             boundary(vertical: vertical,
@@ -309,7 +326,23 @@ private struct LayoutDraftCanvas: View {
                                      size: geometry.size)
                         }
                     }
+                    if let placement = splittingRegion, let origin = splitOrigin,
+                       case .split(_, let axis, let ratio, _, _) = placement.region {
+                        LayoutSplitReveal(axis: axis, edge: origin.edge, ratio: ratio, highlight: highlight,
+                                          tracingCompleted: {
+                            if splitOrigin?.id == origin.id { holdingSplitButton = false }
+                        }, completed: {
+                            if splitOrigin?.id == origin.id { splitOrigin = nil }
+                        })
+                        .frame(width: placement.frame.width * geometry.size.width,
+                               height: placement.frame.height * geometry.size.height)
+                        .offset(x: placement.frame.minX * geometry.size.width, y: placement.frame.minY * geometry.size.height)
+                        .id(origin.id)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
                 }
+                .allowsHitTesting(splittingRegion == nil)
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let point):
@@ -322,19 +355,29 @@ private struct LayoutDraftCanvas: View {
         .coordinateSpace(name: "layoutCanvas")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("multiLayoutCanvas")
+        .onChange(of: controller.pendingEdit != nil) { _, pending in
+            // Cancelled or rejected splits never start a visual transition.
+            if !pending && splittingRegion == nil { splitOrigin = nil }
+        }
+        .onChange(of: controller.draft?.root) { _, _ in
+            if controller.pendingEdit == nil && splittingRegion == nil { splitOrigin = nil }
+        }
+        .onChange(of: controller.target?.id) { _, _ in splitOrigin = nil; pointer = nil }
+        .onChange(of: reduceMotion) { _, reduced in if reduced { splitOrigin = nil } }
     }
 
     private func region(_ leaf: LayoutRegion.Placement, index: Int, size: CGSize) -> some View {
         let choice = controller.draft?.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
         let hovered = hoveredRegion == leaf.region.id && !controller.isApplying && controller.outcomes.isEmpty
-        let showingControls = hovered && !controller.choosingWindow
+        let revealing = splittingRegion?.region.leafIDs.contains(leaf.region.id) == true
+        let showingControls = hovered && !controller.choosingWindow && splittingRegion == nil
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
         let compact = height < 240 || width < 240
         let canDelete = (controller.draft?.root.leafIDs.count ?? 0) > 1
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
-                Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                Rectangle().fill(hovered || revealing ? highlight.opacity(0.22) : Color.white.opacity(0.055))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -395,6 +438,8 @@ private struct LayoutDraftCanvas: View {
             .frame(width: min(300, max(0, width - 80)))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("multiLayoutCard-\(index)")
+            .opacity(revealing ? 0 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: revealing)
         }
         .frame(width: width, height: height)
         .disabled(controller.isApplying || !controller.outcomes.isEmpty)
@@ -406,10 +451,18 @@ private struct LayoutDraftCanvas: View {
                            tabs: boundaryTabs(vertical: vertical, origin: origin, length: length, size: size),
                            hoveredRegion: hoveredRegion,
                            pointer: pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) },
-                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty,
+                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil,
+                           heldRegion: holdingSplitButton && splittingRegion != nil ? splitOrigin?.regionID : nil,
+                           heldEdge: holdingSplitButton && splittingRegion != nil ? splitOrigin?.edge : nil,
                            highlight: highlight,
-                           label: settings.text(vertical ? "垂直分裂" : "水平分裂")) { id in
+                           label: settings.text(vertical ? "垂直分裂" : "水平分裂")) { id, edge in
+            // Capture the actual edge before the model replaces this leaf.
+            // If clearing a window choice needs confirmation, keep this origin
+            // until the confirmed split appears in the model.
+            splitOrigin = reduceMotion ? nil : SplitOrigin(regionID: id, edge: edge)
+            holdingSplitButton = !reduceMotion
             controller.splitRegion(id, axis: vertical ? .columns : .rows)
+            if controller.pendingEdit == nil && splittingRegion == nil { splitOrigin = nil }
         }
         .offset(x: origin.x - (vertical ? 32 : 0), y: origin.y - (vertical ? 0 : 32))
     }
@@ -468,6 +521,116 @@ private struct LayoutDraftCanvas: View {
 }
 
 @MainActor
+private struct LayoutSplitReveal: View {
+    let axis: LayoutSplitAxis
+    let edge: String
+    let ratio: CGFloat
+    let highlight: Color
+    let tracingCompleted: () -> Void
+    let completed: () -> Void
+    @State private var traceProgress: CGFloat = 0
+    @State private var travelProgress: CGFloat = 0
+
+    var body: some View {
+        LayoutSplitTrace(axis: axis, edge: edge, ratio: ratio, highlight: highlight,
+                         traceProgress: traceProgress, travelProgress: travelProgress)
+            .onAppear {
+                withAnimation(.linear(duration: 0.46), completionCriteria: .logicallyComplete) {
+                    traceProgress = 1
+                } completion: {
+                    tracingCompleted()
+                    withAnimation(.easeInOut(duration: 0.3), completionCriteria: .logicallyComplete) {
+                        travelProgress = 1
+                    } completion: {
+                        completed()
+                    }
+                }
+            }
+    }
+}
+
+/// Trace the existing curve and border first. Only after both lights reach
+/// the side borders does the new divider leave the original edge.
+private struct LayoutSplitTrace: View, Animatable {
+    let axis: LayoutSplitAxis
+    let edge: String
+    let ratio: CGFloat
+    let highlight: Color
+    var traceProgress: CGFloat
+    var travelProgress: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(traceProgress, travelProgress) }
+        set { traceProgress = newValue.first; travelProgress = newValue.second }
+    }
+
+    private func phase(_ progress: CGFloat, from start: CGFloat, to end: CGFloat) -> CGFloat {
+        let fraction = min(1, max(0, (progress - start) / (end - start)))
+        return fraction * fraction * (3 - 2 * fraction)
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let vertical = axis == .columns
+            let length = vertical ? size.height : size.width
+            let breadth = vertical ? size.width : size.height
+            let nearEdge = edge == "left" || edge == "top"
+            let baseline: CGFloat = nearEdge ? 0 : breadth
+            let inward: CGFloat = nearEdge ? 1 : -1
+            let center = length / 2
+            let curveProgress = phase(traceProgress, from: 0.1, to: 0.5)
+            let edgeProgress = phase(traceProgress, from: 0.5, to: 1)
+            let glowOpacity = 1 - phase(travelProgress, from: 0.75, to: 1)
+            func point(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
+                vertical ? CGPoint(x: across, y: along) : CGPoint(x: along, y: across)
+            }
+            var glow = context
+            glow.addFilter(.blur(radius: 5))
+            func drawTip(_ position: CGPoint) {
+                let halo = Path(ellipseIn: CGRect(x: position.x - 5, y: position.y - 5, width: 10, height: 10))
+                let dot = Path(ellipseIn: CGRect(x: position.x - 2.5, y: position.y - 2.5, width: 5, height: 5))
+                glow.fill(halo, with: .color(highlight.opacity(glowOpacity)))
+                context.fill(dot, with: .color(.white.opacity(glowOpacity)))
+            }
+            func drawLine(_ path: Path, opacity: CGFloat = 1) {
+                glow.stroke(path, with: .color(highlight.opacity(0.65 * glowOpacity * opacity)),
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                context.stroke(path, with: .color(highlight.opacity(opacity)),
+                               style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            }
+
+            let apex = point(center, baseline + inward * 34)
+            // These are the same cubic control points as LayoutBoundaryContour,
+            // followed in reverse on the first half, from the apex to each shoulder.
+            for direction: CGFloat in [-1, 1] {
+                var curve = Path()
+                curve.move(to: apex)
+                curve.addCurve(to: point(center + direction * 44, baseline),
+                               control1: point(center + direction * 28, baseline + inward * 34),
+                               control2: point(center + direction * 22, baseline))
+                var trail = curve.trimmedPath(from: 0, to: curveProgress)
+                if edgeProgress > 0 {
+                    trail.addLine(to: point(center + direction * (44 + (center - 44) * edgeProgress), baseline))
+                }
+                drawLine(trail, opacity: 1 - phase(travelProgress, from: 0, to: 0.6))
+                if travelProgress == 0, curveProgress > 0, let tip = trail.currentPoint { drawTip(tip) }
+            }
+            if curveProgress == 0 { drawTip(apex) }
+
+            if travelProgress > 0 {
+                let across = baseline + (breadth * ratio - baseline) * travelProgress
+                var divider = Path()
+                divider.move(to: point(0, across))
+                divider.addLine(to: point(length, across))
+                drawLine(divider)
+                drawTip(point(0, across))
+                drawTip(point(length, across))
+            }
+        }
+    }
+}
+
+@MainActor
 private struct LayoutBoundaryView: View {
     struct Tab: Equatable {
         let regionID: UUID
@@ -485,9 +648,11 @@ private struct LayoutBoundaryView: View {
     let hoveredRegion: UUID?
     let pointer: CGPoint?
     let showsControls: Bool
+    let heldRegion: UUID?
+    let heldEdge: String?
     let highlight: Color
     let label: String
-    let split: (UUID) -> Void
+    let split: (UUID, String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previousTab: Tab?
 
@@ -509,7 +674,8 @@ private struct LayoutBoundaryView: View {
     }
 
     var body: some View {
-        let tab = activeTab
+        let heldTab = previousTab.flatMap { $0.regionID == heldRegion && $0.edge == heldEdge ? $0 : nil }
+        let tab = heldTab ?? activeTab
         let hoveredTab = tabs.first { $0.regionID == hoveredRegion }
         // Retain the attachment point while fading out, so the edge flattens
         // where the button was instead of jumping back to the line's midpoint.
@@ -544,7 +710,7 @@ private struct LayoutBoundaryView: View {
                 .animation(animation, value: depth)
                 .animation(animation, value: visible)
             if let attachment {
-                Button { split(attachment.regionID) } label: {
+                Button { split(attachment.regionID, attachment.edge) } label: {
                     Image(systemName: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 28, height: 28).contentShape(Rectangle())
@@ -557,8 +723,8 @@ private struct LayoutBoundaryView: View {
                 // Keep the hit target still while the surrounding edge grows.
                 .position(x: vertical ? 32 + attachment.inward * 17 : center,
                           y: vertical ? center : 32 + attachment.inward * 17)
-                .allowsHitTesting(visible)
-                .accessibilityHidden(!visible)
+                .allowsHitTesting(visible && showsControls)
+                .accessibilityHidden(!visible || !showsControls)
             }
         }
         .frame(width: vertical ? 64 : length, height: vertical ? length : 64)
