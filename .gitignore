@@ -29,3 +29,5 @@ xcuserdata/
 *.p12
 *.p8
 *.keychain-db
+
+outputs/
