@@ -307,7 +307,6 @@ private struct LayoutDraftCanvas: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pointer: CGPoint?
     @State private var splitOrigin: SplitOrigin?
     @State private var holdingSplitButton = false
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
@@ -326,7 +325,7 @@ private struct LayoutDraftCanvas: View {
     }
 
     private var hoveredRegion: UUID? {
-        guard let pointer, !controller.isApplying, controller.outcomes.isEmpty else { return nil }
+        guard let pointer = controller.pointer, !controller.isApplying, controller.outcomes.isEmpty else { return nil }
         return controller.draft?.root.leaves.first { $0.frame.contains(pointer) }?.region.id
     }
 
@@ -378,13 +377,6 @@ private struct LayoutDraftCanvas: View {
                     }
                 }
                 .allowsHitTesting(splittingRegion == nil)
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let point):
-                        pointer = CGPoint(x: point.x / geometry.size.width, y: point.y / geometry.size.height)
-                    case .ended: pointer = nil
-                    }
-                }
             }
         }
         .coordinateSpace(name: "layoutCanvas")
@@ -397,7 +389,7 @@ private struct LayoutDraftCanvas: View {
         .onChange(of: controller.draft?.root) { _, _ in
             if controller.pendingEdit == nil && splittingRegion == nil { splitOrigin = nil }
         }
-        .onChange(of: controller.target?.id) { _, _ in splitOrigin = nil; pointer = nil }
+        .onChange(of: controller.target?.id) { _, _ in splitOrigin = nil }
         .onChange(of: reduceMotion) { _, reduced in if reduced { splitOrigin = nil } }
     }
 
@@ -485,7 +477,7 @@ private struct LayoutDraftCanvas: View {
         LayoutBoundaryView(vertical: vertical, length: length,
                            tabs: boundaryTabs(vertical: vertical, origin: origin, length: length, size: size),
                            hoveredRegion: hoveredRegion,
-                           pointer: pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) },
+                           pointer: controller.pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) },
                            showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil,
                            heldRegion: holdingSplitButton && splittingRegion != nil ? splitOrigin?.regionID : nil,
                            heldEdge: holdingSplitButton && splittingRegion != nil ? splitOrigin?.edge : nil,
@@ -667,13 +659,14 @@ private struct LayoutSplitTrace: View, Animatable {
 
 @MainActor
 private struct LayoutBoundaryView: View {
-    struct Tab: Equatable {
+    struct Tab: Equatable, Identifiable {
         let regionID: UUID
         let index: Int
         let edge: String
         let start: CGFloat
         let end: CGFloat
         let inward: CGFloat
+        var id: String { "\(regionID)-\(edge)" }
         var center: CGFloat { (start + end) / 2 }
     }
 
@@ -708,58 +701,51 @@ private struct LayoutBoundaryView: View {
         return hypot(along - tab.center, across) <= 44 ? tab : nil
     }
 
+    private var controlTabs: [Tab] {
+        // Keep each hidden control mounted at zero depth so its very first
+        // reveal animates too. Preserve a removed leaf while its split traces.
+        if let previousTab, !tabs.contains(where: { $0.id == previousTab.id }) {
+            return tabs + [previousTab]
+        }
+        return tabs
+    }
+
     var body: some View {
         let heldTab = previousTab.flatMap { $0.regionID == heldRegion && $0.edge == heldEdge ? $0 : nil }
         let tab = heldTab ?? activeTab
         let hoveredTab = tabs.first { $0.regionID == hoveredRegion }
-        // Retain the attachment point while fading out, so the edge flattens
-        // where the button was instead of jumping back to the line's midpoint.
-        let attachment = tab ?? previousTab
-        let visible = tab != nil
-        let center = attachment?.center ?? length / 2
-        let depth = visible ? (attachment?.inward ?? 1) * 34 : 0
         let animation = reduceMotion ? nil : Animation.easeInOut(duration: 0.18)
-        let bulge = LayoutBoundaryContour(vertical: vertical, center: center, depth: depth, tabOnly: true)
         ZStack(alignment: .topLeading) {
-            bulge.fill(.regularMaterial)
-                .allowsHitTesting(false)
-                .animation(animation, value: depth)
-            // The original straight border stays visible behind the new curve.
-            LayoutBoundaryContour(vertical: vertical, center: center, depth: 0)
+            ForEach(controlTabs) { attachment in
+                let visible = tab?.id == attachment.id
+                let hovered = pointer.map {
+                    abs((vertical ? $0.y : $0.x) - attachment.center) <= 14 &&
+                    abs((vertical ? $0.x : $0.y) - attachment.inward * 17) <= 14
+                } ?? false
+                LayoutBoundaryControl(vertical: vertical, tab: attachment, progress: visible ? 1 : 0,
+                                      hovered: hovered && showsControls, highlight: highlight, label: label) {
+                    split(attachment.regionID, attachment.edge)
+                }
+                .animation(animation, value: visible)
+                .allowsHitTesting(visible && showsControls)
+                .accessibilityHidden(!visible || !showsControls)
+            }
+            // Draw the original straight border above the material so it stays
+            // visible throughout the extra curve's expansion and retraction.
+            LayoutBoundaryContour(vertical: vertical, center: length / 2, depth: 0)
                 .stroke(.white.opacity(0.45), lineWidth: 1)
                 .allowsHitTesting(false)
-            LayoutBoundaryContour(vertical: vertical, center: center, depth: 0,
+            LayoutBoundaryContour(vertical: vertical, center: length / 2, depth: 0,
                                   segment: hoveredTab.map { $0.start...$0.end })
                 .stroke(highlight, lineWidth: 2)
                 .opacity(hoveredTab == nil ? 0 : 1)
                 .allowsHitTesting(false)
 
             ForEach(guideCenters, id: \.self) { midpoint in
+                let covered = tab.map { abs(midpoint - $0.center) < 0.5 } ?? false
                 guide(at: midpoint)
-                    .opacity(showsControls && !(visible && abs(midpoint - center) < 0.5) ? 1 : 0)
-                    .animation(animation, value: visible)
-            }
-            bulge.stroke(highlight, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                .opacity(visible ? 1 : 0)
-                .allowsHitTesting(false)
-                .animation(animation, value: depth)
-                .animation(animation, value: visible)
-            if let attachment {
-                Button { split(attachment.regionID, attachment.edge) } label: {
-                    Image(systemName: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 28, height: 28).contentShape(Rectangle())
-                }
-                .buttonStyle(LayoutSplitButtonStyle(vertical: vertical, inward: attachment.inward, highlight: highlight))
-                .help(label).accessibilityLabel(label)
-                .accessibilityIdentifier("multiLayoutSplit-\(attachment.index)-\(attachment.edge)")
-                .opacity(visible ? 1 : 0)
-                .animation(animation, value: visible)
-                // Keep the hit target still while the surrounding edge grows.
-                .position(x: vertical ? 32 + attachment.inward * 17 : center,
-                          y: vertical ? center : 32 + attachment.inward * 17)
-                .allowsHitTesting(visible && showsControls)
-                .accessibilityHidden(!visible || !showsControls)
+                    .opacity(showsControls && !covered ? 1 : 0)
+                    .animation(animation, value: tab?.id)
             }
         }
         .frame(width: vertical ? 64 : length, height: vertical ? length : 64)
@@ -781,13 +767,59 @@ private struct LayoutBoundaryView: View {
     }
 }
 
+/// One progress value drives the curve, its hover fill and the delayed icon.
+/// Computing opacity inside the animatable view keeps it invisible until the
+/// curve is almost open, including the first time the pointer reaches a guide.
+@MainActor
+private struct LayoutBoundaryControl: View, Animatable {
+    let vertical: Bool
+    let tab: LayoutBoundaryView.Tab
+    var progress: CGFloat
+    let hovered: Bool
+    let highlight: Color
+    let label: String
+    let split: () -> Void
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let depth = tab.inward * 34 * progress
+        let iconOpacity = min(1, max(0, (progress - 0.8) / 0.2))
+        let bulge = LayoutBoundaryContour(vertical: vertical, center: tab.center, depth: depth, tabOnly: true)
+        ZStack(alignment: .topLeading) {
+            bulge.fill(.regularMaterial).allowsHitTesting(false)
+            bulge.stroke(highlight, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .opacity(progress).allowsHitTesting(false)
+            Button(action: split) {
+                Image(systemName: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
+                    .font(.system(size: 14, weight: .semibold))
+                    .opacity(iconOpacity)
+                    .frame(width: 28, height: 28).contentShape(Rectangle())
+            }
+            .buttonStyle(LayoutSplitButtonStyle(vertical: vertical, inward: tab.inward, depth: depth,
+                                               hovered: hovered, highlight: highlight))
+            .help(label).accessibilityLabel(label)
+            .accessibilityIdentifier("multiLayoutSplit-\(tab.index)-\(tab.edge)")
+            // Keep the hit target still while the surrounding edge grows.
+            .position(x: vertical ? 32 + tab.inward * 17 : tab.center,
+                      y: vertical ? tab.center : 32 + tab.inward * 17)
+        }
+        // Child shapes must use the sampled progress, not start another animation.
+        .transaction { $0.animation = nil }
+    }
+}
+
 @MainActor
 private struct LayoutSplitButtonStyle: ButtonStyle {
     let vertical: Bool
     let inward: CGFloat
+    let depth: CGFloat
+    let hovered: Bool
     let highlight: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -795,13 +827,12 @@ private struct LayoutSplitButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .shadow(color: highlight.opacity(hovered ? 0.65 : 0), radius: 4)
             .background {
-                LayoutBoundaryContour(vertical: vertical, center: 44, depth: inward * 34, tabOnly: true)
+                LayoutBoundaryContour(vertical: vertical, center: 44, depth: depth, tabOnly: true)
                     .fill(highlight.opacity(configuration.isPressed ? 0.44 : (hovered ? 0.24 : 0)))
                     .frame(width: vertical ? 64 : 88, height: vertical ? 88 : 64)
                     .offset(x: vertical ? -inward * 17 : 0, y: vertical ? 0 : -inward * 17)
                     .allowsHitTesting(false)
             }
-            .onHover { hovered = $0 }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hovered)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
     }

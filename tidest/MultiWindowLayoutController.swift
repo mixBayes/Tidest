@@ -15,6 +15,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var windows: [LayoutWindowChoice] = []
     @Published private(set) var displays: [LayoutDisplay] = []
     @Published private(set) var target: LayoutDisplay?
+    @Published private(set) var pointer: CGPoint?
     @Published private(set) var displayInvalidated = false
     @Published private(set) var isLoading = false
     @Published var choosingWindow = false {
@@ -124,6 +125,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             panel.backgroundColor = .clear
             panel.hasShadow = false
             panel.hidesOnDeactivate = false
+            panel.acceptsMouseMovedEvents = true
             panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             panel.titlebarAppearsTransparent = true
             panel.identifier = NSUserInterfaceItemIdentifier("multiWindowLayoutPanel")
@@ -131,10 +133,16 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             self.panel = panel
         }
         panel?.title = settings.text("快速布局")
-        panel?.contentView = NSHostingView(rootView: MultiWindowLayoutView(controller: self, settings: settings, templates: templates))
+        let content = NSHostingView(rootView: MultiWindowLayoutView(controller: self, settings: settings, templates: templates))
+        // Keep screen entry/exit tracking independent of SwiftUI's animated cells.
+        content.addTrackingArea(NSTrackingArea(rect: .zero,
+                                              options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                              owner: panel, userInfo: nil))
+        panel?.contentView = content
         panel?.setFrame(frame, display: true)
         panel?.makeKeyAndOrderFront(nil)
         installMonitors()
+        updatePointer()
         if preview { loadPreviewWindows() }
         else { reloadWindows(); DailyActivityReporter.shared.recordActivity() }
     }
@@ -144,6 +152,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         loading?.cancel()
         loading = nil
         isPresented = false
+        pointer = nil
         choosingWindow = false
         confirming = false
         panel?.orderOut(nil)
@@ -171,6 +180,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         guard let display = displays.first(where: { $0.id == id }) else { return }
         target = display
         panel?.setFrame(display.frame, display: true)
+        updatePointer()
         topology = displays
         displayInvalidated = false
         confirming = false
@@ -384,8 +394,15 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     private func installMonitors() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            let consumed = MainActor.assumeIsolated { self?.handleKey(event) ?? false }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .mouseMoved, .mouseEntered, .mouseExited,
+                                                            .leftMouseDown, .leftMouseUp, .leftMouseDragged]) { [weak self] event in
+            let consumed = MainActor.assumeIsolated {
+                guard let self else { return false }
+                if event.type == .keyDown || event.type == .keyUp { return self.handleKey(event) }
+                if event.window === self.panel { self.updatePointer() }
+                else if self.pointer != nil { self.pointer = nil }
+                return false
+            }
             return consumed ? nil : event
         }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -408,6 +425,19 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             refreshTimer = timer
             RunLoop.main.add(timer, forMode: .common)
         }
+    }
+
+    private func updatePointer() {
+        let point = NSEvent.mouseLocation
+        guard isPresented, panel?.attachedSheet == nil, let area = target?.visibleFrame,
+              area.contains(point) else {
+            if pointer != nil { pointer = nil }
+            return
+        }
+        // The draft uses top-left coordinates normalized to the usable screen.
+        let normalized = CGPoint(x: (point.x - area.minX) / area.width,
+                                 y: (area.maxY - point.y) / area.height)
+        if pointer != normalized { pointer = normalized }
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
