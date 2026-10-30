@@ -13,14 +13,56 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
         app.buttons["multiLayoutBlank"].click()
         XCTAssertEqual(regions(app).count, 1)
+        app.buttons["multiLayoutRegion-0"].hover()
         app.buttons["multiLayoutSplit-0-left"].click()
         XCTAssertEqual(regions(app).count, 2)
+        app.buttons["multiLayoutRegion-0"].hover()
         app.buttons["multiLayoutSplit-0-bottom"].click()
         XCTAssertEqual(regions(app).count, 3)
         moreAction("multiLayoutMerge", in: app)
         XCTAssertEqual(regions(app).count, 2)
         moreAction("multiLayoutUndoDraft", in: app)
         XCTAssertEqual(regions(app).count, 3)
+    }
+
+    @MainActor
+    func testHoverMovesControlsInsteadOfKeepingThemOnTheClickedRegion() {
+        let app = launch()
+        let left = app.buttons["multiLayoutRegion-0"]
+        let right = app.buttons["multiLayoutRegion-1"]
+        left.hover()
+        XCTAssertTrue(app.buttons["multiLayoutDelete-0"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["multiLayoutSplit-0-left"].isHittable)
+        left.click()
+        XCTAssertTrue(app.textFields["multiLayoutWindowSearch"].waitForExistence(timeout: 2))
+        app.typeKey(.escape, modifierFlags: [])
+        right.hover()
+        XCTAssertTrue(app.buttons["multiLayoutDelete-1"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["multiLayoutDelete-0"].exists)
+        XCTAssertFalse(app.buttons["multiLayoutSplit-0-left"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "hover-right-region"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testDeletePreservesOtherWindowAndUndoRestoresBothRegions() {
+        let app = launch()
+        assign(region: 0, windowIndex: 0, in: app)
+        assign(region: 1, windowIndex: 1, in: app)
+        app.buttons["multiLayoutRegion-0"].hover()
+        app.buttons["multiLayoutDelete-0"].click()
+        XCTAssertEqual(regions(app).count, 1)
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 2"))
+        XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+        app.buttons["multiLayoutRegion-0"].hover()
+        XCTAssertFalse(app.buttons["multiLayoutDelete-0"].exists)
+        moreAction("multiLayoutUndoDraft", in: app)
+        XCTAssertEqual(regions(app).count, 2)
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 1"))
+        XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))
+        XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
     }
 
     @MainActor

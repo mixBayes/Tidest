@@ -136,6 +136,56 @@ final class MultiWindowLayoutTests: XCTestCase {
         XCTAssertEqual(draft.root.leafIDs.count, 1)
     }
 
+    func testRemovingOneRegionPreservesOtherAssignmentsAndUndoRestoresTheDraft() {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.grid.makeRegion())
+        let ids = draft.root.leafIDs
+        for id in ids { draft.assign(UUID(), to: id) }
+        draft.selectedRegion = ids[3]
+        let before = draft
+        XCTAssertTrue(draft.removeRegion(ids[0]))
+        XCTAssertEqual(draft.root.leafIDs.count, 3)
+        XCTAssertNil(draft.assignments[ids[0]])
+        for id in ids.dropFirst() { XCTAssertEqual(draft.assignments[id], before.assignments[id]) }
+        XCTAssertEqual(draft.selectedRegion, ids[3])
+        XCTAssertTrue(draft.isComplete)
+        let expanded = draft.root.leaves.first { $0.region.id == ids[1] }
+        XCTAssertEqual(expanded?.frame, CGRect(x: 0, y: 0, width: 0.5, height: 1))
+        assertTiling(draft.root)
+        draft.undo()
+        XCTAssertEqual(draft, before)
+    }
+
+    func testRemovingRegionNextToNestedGroupExpandsThatGroupWithoutLosingItsRatios() {
+        let top = LayoutRegion.leaf(UUID()), bottom = LayoutRegion.leaf(UUID())
+        let group = LayoutRegion.split(UUID(), .rows, 0.35, top, bottom)
+        let removed = LayoutRegion.leaf(UUID())
+        var draft = MultiWindowLayoutDraft(root: .split(UUID(), .columns, 0.6, group, removed))
+        for id in draft.root.leafIDs { draft.assign(UUID(), to: id) }
+        draft.selectedRegion = removed.id
+        let before = draft
+        XCTAssertTrue(draft.removeRegion(removed.id))
+        XCTAssertEqual(draft.root, group)
+        XCTAssertEqual(draft.selectedRegion, top.id)
+        XCTAssertEqual(draft.assignments[top.id], before.assignments[top.id])
+        XCTAssertEqual(draft.assignments[bottom.id], before.assignments[bottom.id])
+        XCTAssertEqual(draft.root.leaves[0].frame, CGRect(x: 0, y: 0, width: 1, height: 0.35))
+        assertTiling(draft.root, in: CGRect(x: -1440, y: 33, width: 1440, height: 867))
+        draft.undo()
+        XCTAssertEqual(draft, before)
+    }
+
+    func testRemovingLastRegionOrAnythingOtherThanALeafDoesNothing() {
+        var single = MultiWindowLayoutDraft(root: .leaf(UUID()))
+        let before = single
+        XCTAssertFalse(single.removeRegion(single.root.id))
+        XCTAssertFalse(single.removeRegion(UUID()))
+        XCTAssertEqual(single, before)
+        var split = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
+        let splitBefore = split
+        XCTAssertFalse(split.removeRegion(split.root.id))
+        XCTAssertEqual(split, splitBefore)
+    }
+
     func testDuplicateWindowIsRejectedAndCurrentAssignmentCanBeReplacedOrCleared() {
         var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
         let ids = draft.root.leafIDs
@@ -258,8 +308,11 @@ final class MultiWindowLayoutTests: XCTestCase {
         for _ in 0..<220 {
             let ids = draft.root.leafIDs
             draft.selectedRegion = ids[next(ids.count)]
-            if next(3) == 0 { _ = draft.merge(confirmed: true) }
-            else { _ = draft.split(next(2) == 0 ? .columns : .rows, confirmed: true, minimumSize: CGSize(width: 0.05, height: 0.05)) }
+            switch next(5) {
+            case 0: _ = draft.merge(confirmed: true)
+            case 1: _ = draft.removeRegion(draft.selectedRegion!)
+            default: _ = draft.split(next(2) == 0 ? .columns : .rows, confirmed: true, minimumSize: CGSize(width: 0.05, height: 0.05))
+            }
             let splits = draft.root.placements().filter { if case .split = $0.region { return true }; return false }
             if !splits.isEmpty {
                 draft.resize(splits[next(splits.count)].region.id, ratio: Double(next(70) + 15) / 100,

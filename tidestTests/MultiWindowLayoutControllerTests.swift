@@ -112,6 +112,28 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertEqual(controller.draft?.root.region(leaves[1])?.leafIDs.count, 2)
     }
 
+    func testDeletingAssignedRegionClosesPickerAndCanBeUndoneWithoutMovingWindows() throws {
+        let controller = try makeController()
+        controller.present(preview: true)
+        defer { controller.dismiss() }
+        let ids = try XCTUnwrap(controller.draft?.root.leafIDs)
+        for (region, choice) in zip(ids, controller.windows) {
+            controller.selectRegion(region)
+            controller.chooseWindow(choice.id)
+        }
+        controller.selectRegion(ids[0])
+        let before = controller.draft
+        controller.deleteRegion(ids[0])
+        XCTAssertFalse(controller.choosingWindow)
+        XCTAssertNil(controller.pendingEdit)
+        XCTAssertEqual(controller.draft?.root.leafIDs, [ids[1]])
+        XCTAssertTrue(controller.canApply)
+        XCTAssertTrue(controller.outcomes.isEmpty)
+        XCTAssertFalse(controller.undoAvailable)
+        controller.undoDraft()
+        XCTAssertEqual(controller.draft, before)
+    }
+
     private func makeController() throws -> MultiWindowLayoutController {
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a macOS display session")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "tidest.multi-layout.tests.\(UUID().uuidString)"))

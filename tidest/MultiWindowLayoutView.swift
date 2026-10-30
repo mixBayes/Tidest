@@ -271,6 +271,7 @@ struct MultiWindowLayoutView: View {
 private struct LayoutDraftCanvas: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoveredRegion: UUID?
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
 
@@ -296,14 +297,15 @@ private struct LayoutDraftCanvas: View {
 
     private func region(_ leaf: LayoutRegion.Placement, index: Int, size: CGSize) -> some View {
         let choice = controller.draft?.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
-        let selected = controller.draft?.selectedRegion == leaf.region.id
+        let hovered = hoveredRegion == leaf.region.id && !controller.isApplying && controller.outcomes.isEmpty
+        let showingControls = hovered && !controller.choosingWindow
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
                 ZStack {
-                    Rectangle().fill(selected ? highlight.opacity(0.22) : Color.white.opacity(0.055))
-                    Rectangle().strokeBorder(selected ? highlight : .white.opacity(0.45), lineWidth: selected ? 3 : 1)
+                    Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                    Rectangle().strokeBorder(hovered ? highlight : .white.opacity(0.45), lineWidth: hovered ? 3 : 1)
                     if height < 180 || width < 240 {
                         Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
                             .font(.system(size: 12, weight: .medium))
@@ -336,7 +338,7 @@ private struct LayoutDraftCanvas: View {
             .buttonStyle(.plain)
             .accessibilityLabel(settings.text("区域 %@", String(index + 1)) + ": " + (choice?.window.title ?? settings.text("选择窗口")))
             .accessibilityIdentifier("multiLayoutRegion-\(index)")
-            if (selected || hoveredRegion == leaf.region.id) && !controller.choosingWindow {
+            ZStack {
                 splitButton(leaf.region.id, axis: .rows, index: index, edge: "top")
                     .position(x: width / 2, y: 20)
                 splitButton(leaf.region.id, axis: .rows, index: index, edge: "bottom")
@@ -345,7 +347,28 @@ private struct LayoutDraftCanvas: View {
                     .position(x: 20, y: height / 2)
                 splitButton(leaf.region.id, axis: .columns, index: index, edge: "right")
                     .position(x: width - 20, y: height / 2)
+                if (controller.draft?.root.leafIDs.count ?? 0) > 1 {
+                    // Keep the top row's delete control clear of the toolbar
+                    // and, in short cells, the right-edge split button.
+                    let deleteY: CGFloat = leaf.frame.minY == 0 ? (height < 220 ? height - 20 : 84) : 20
+                    Button { controller.deleteRegion(leaf.region.id) } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 30, height: 30)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.35)))
+                    }
+                    .buttonStyle(.plain)
+                    .help(settings.text("删除格子"))
+                    .accessibilityLabel(settings.text("删除格子"))
+                    .accessibilityIdentifier("multiLayoutDelete-\(index)")
+                    .position(x: width - 20, y: deleteY)
+                }
             }
+            .opacity(showingControls ? 1 : 0)
+            .allowsHitTesting(showingControls)
+            .accessibilityHidden(!showingControls)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
         }
         .frame(width: width, height: height)
         .disabled(controller.isApplying || !controller.outcomes.isEmpty)

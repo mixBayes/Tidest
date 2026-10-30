@@ -272,6 +272,21 @@ nonisolated struct MultiWindowLayoutDraft: Equatable, Sendable {
         return true
     }
 
+    /// Remove one leaf and let its sibling (including any nested split) fill
+    /// the parent rectangle. Surviving region IDs and window choices stay intact.
+    @discardableResult
+    mutating func removeRegion(_ identifier: UUID) -> Bool {
+        guard root.leafIDs.contains(identifier),
+              let parent = root.parent(of: identifier),
+              case .split(_, _, _, let first, let second) = parent else { return false }
+        let remaining = first.id == identifier ? second : first
+        checkpoint()
+        root = root.replacing(parent.id, with: remaining)
+        assignments[identifier] = nil
+        if selectedRegion == identifier { selectedRegion = remaining.leaves.first?.region.id }
+        return true
+    }
+
     /// A continuous drag makes one history entry, supplied by the caller at drag start.
     mutating func resize(_ split: UUID, ratio: Double, minimumSize: CGSize = .zero) {
         root = root.resizing(split, ratio: ratio, minimumSize: minimumSize)

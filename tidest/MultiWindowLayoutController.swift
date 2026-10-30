@@ -262,6 +262,14 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         confirming = false
     }
 
+    func deleteRegion(_ id: UUID) {
+        guard !isApplying, outcomes.isEmpty, draft?.removeRegion(id) == true else { return }
+        choosingWindow = false
+        confirming = false
+        messageKey = nil
+        dragSplit = nil
+    }
+
     func resize(_ split: UUID, ratio: Double, ended: Bool) {
         guard !isApplying, outcomes.isEmpty else { return }
         if dragSplit != split { draft?.checkpoint(); dragSplit = split }

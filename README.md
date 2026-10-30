@@ -62,9 +62,11 @@ Press **Option + Shift + Q** to open a translucent fullscreen overlay. You can a
 
 1. Regions appear directly on the display under your pointer, starting with two columns. Use the display menu at the upper left to switch screens; **Layouts** offers other starting points, a blank layout, and saved templates.
 2. Drag shared dividers to resize regions while keeping the usable screen area filled. Buttons on horizontal edges split a region into rows; buttons on vertical edges split it into columns.
-3. Click a region to highlight it and open its window picker. Search by app or window title, use arrow keys and Enter to select, or Esc to close the picker. Each window can occupy only one region.
+3. Hover over a region to highlight it and fade in its split and delete buttons; they fade out when the pointer leaves. Click the region to open its window picker. Search by app or window title, use arrow keys and Enter to select, or Esc to close the picker. Each window can occupy only one region.
 4. Once every region has a valid window, click **Apply** at the upper right to arrange and reveal the windows. **Cancel** discards the draft. From the keyboard, Enter in preview opens confirmation; a separate Enter applies. Enter in the picker only selects its window.
 5. **More actions** at the upper left offers merge, undo draft, clear selection, save template, and undo last application. Merge the two direct children of the same split; merge nested splits from the inside first.
+
+Use a region’s **Delete** button to remove it. The adjacent region or group expands to fill the space, preserving the remaining window choices. The final region cannot be deleted. **Undo draft edit** restores the deleted region and its window choice.
 
 Editing, choosing windows, switching the target, and saving templates leave real windows in place. Esc in the main preview cancels. Splitting or merging assigned regions asks before clearing only affected choices; ratio changes retain assignments. **Undo draft edit** only changes the preview.
 
