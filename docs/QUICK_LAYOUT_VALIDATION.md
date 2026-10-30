@@ -1,6 +1,6 @@
 # 窗口定位与多窗口快速布局：开发验证与交接
 
-这是本地功能分支的实现与验收记录，尚未通过 macOS 编译或实机验收。
+这是窗口定位与快速布局的实现和验证记录。Tidest 仅支持 macOS，测试通过 Xcode 运行。
 
 ## 范围和产品默认值
 
@@ -20,38 +20,28 @@
 
 本次未加入镜像/旋转、最近模板记忆、跨 Space、启动应用或窗口组合恢复；这些仍是需求提案中的待评审项或范围外项。
 
-## 云端实际验证
+## macOS 审查与验证（2026-10-30）
 
-执行环境：Debian 13 / x86_64，临时安装官方 Swift 6.2 Linux 工具链。没有 macOS SDK、AppKit、SwiftUI 或 Xcode。
+审查基准为远程分支提交 `7f82c49`，本机使用 Xcode 27.1（27A9275）、macOS arm64。审查中实际构建发现：新增几何文件缺少 `CoreGraphics` 导入；显示器监听和定时刷新中的嵌套回调需要显式引用 `self`。这些问题已修复，窗口列表刷新中的同类编译警告也已修正。
+
+早期开发曾在 Linux 上运行部分计算逻辑，这不代表产品支持 Linux，也不能证明 macOS 应用可编译。现已移除独立的 Linux 测试脚本和条件导入，原有几何、草稿和撤销测试保留在 macOS 的 `tidestTests` 中。菜单中文按要求改为“操作统计”（繁体“操作統計”）。
 
 | 检查 | 状态 | 证据与边界 |
 | --- | --- | --- |
-| 生产几何源码及共享 XCTest 的编译和执行 | 通过 | `scripts/test-layout-logic.sh`，22 项测试、0 失败；Swift 5 语言模式、MainActor 默认隔离 |
-| 所有 app、unit test 和 UI test Swift 源码语法解析 | 通过 | `swiftc -frontend -parse tidest/*.swift tidestTests/*.swift tidestUITests/*.swift`；不解析导入的 macOS 模块、不做 AppKit 类型检查 |
+| macOS Debug 应用构建 | 通过 | Xcode 实际编译、链接和本地签名；未进行发布签名或公证 |
+| macOS 单元测试 | 通过 | 218 项、0 失败，包括 22 项几何/草稿/撤销测试、5 项模板/设置/菜单测试、3 项面板控制器测试，以及原有功能回归 |
+| 新增快速布局界面测试 | 未执行 | 测试运行器初始化失败：`Timed out while enabling automation mode.`，不是测试用例通过或失败 |
 | 五种语言的新布局文案、重复键、格式占位符 | 通过 | `python3 scripts/check-layout-localizations.py` |
 | Git patch 空白检查 | 通过 | `git diff --check` |
-| 完整 macOS 应用构建、XCTest、XCUITest | 未运行 | Linux 缺少 macOS SDK/Xcode，不能以语法检查代替 |
-| 真实 AX、多屏、权限、Dock/Keep 回归 | 未运行 | 必须在已授权的 macOS 桌面会话中执行 |
+| 真实窗口移动、多屏拔插、权限变化、Dock/Keep 实机回归 | 未验证 | 仍需按下方清单在已授权的 macOS 桌面会话中验收 |
 
-逻辑测试覆盖四个起点、偏移与竖屏几何、像素边界共享、受影响选择确认、逐层合并、禁止重复分配、完整性、比例保留绑定、一次拖动一次撤销、共线协调、独立分隔线、不合法模板、按空间限制继续分格、切换模板撤销、模板不含窗口身份，以及 220 轮确定性编辑的铺满/不重叠/不越界性质。
+几何测试覆盖四个起点、偏移与竖屏几何、像素边界共享、受影响选择确认、逐层合并、禁止重复分配、完整性、比例保留绑定、一次拖动一次撤销、共线协调、独立分隔线、不合法模板、按空间限制继续分格、切换模板撤销、模板不含窗口身份，以及 220 轮确定性编辑的铺满/不重叠/不越界性质。撤销测试覆盖成功无变化批次替换旧撤销、预检失败保留旧撤销、失败重试不覆盖首次几何、部分撤销只保留失败项。
 
-新增但尚未在 Mac 运行：5 项模板/设置/菜单单元测试、3 项面板控制器集成测试、6 项 UI 测试。界面预览与这些面板测试使用示例窗口，不能证明真实 AX 执行正确。旧窗口定位引擎测试继续使用已有 `QuickLayoutTests`。
-
-独立代理做了两轮只读全面审查，并对最终撤销边界修复做了针对性复核。第一轮发现的撤销整批阻塞、单窗执行中拔屏、撤销快照时机、失败项撤销保留与键盘高亮身份问题已修正；最终复核未发现尚未修复的确定性缺陷；22 项逻辑测试由主执行与独立审查分别重跑通过。生产控制器调用纯 Foundation 的撤销状态维护，新增 4 项回归覆盖成功无变化批次替换旧撤销、预检失败保留旧撤销、失败重试不覆盖首次几何、部分撤销只保留失败项。该结论仍受缺少 macOS SDK/实机验证的限制。
+面板控制器测试使用示例窗口，不执行真实辅助功能接口写入，不能代替真实窗口控制验收。旧窗口定位引擎的 `QuickLayoutTests` 已包含在本次单元测试中。
 
 ## 重现命令
 
-Linux 上需 Swift 6.2 或更新的工具链：
-
-```sh
-scripts/test-layout-logic.sh
-python3 scripts/check-layout-localizations.py
-git diff --check
-```
-
-若 Swift 不在 PATH，可使用 `SWIFT_BIN=/absolute/path/to/swift scripts/test-layout-logic.sh`。
-
-Mac 上先构建，再运行全部测试；如遇本机已有凭据或签名策略，按仓库原有构建说明处理，不修改签名或发布配置：
+在 Mac 上先构建，再运行单元测试和新增布局界面测试；如遇本机已有凭据或签名策略，按仓库原有构建说明处理，不修改签名或发布配置：
 
 ```sh
 xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \
@@ -60,9 +50,15 @@ xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \
 
 xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \
   -derivedDataPath /tmp/tidest-build -destination 'platform=macOS' \
-  -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual \
-  DEVELOPMENT_TEAM= test
+  -parallel-testing-enabled NO -only-testing:tidestTests \
+  -only-testing:tidestUITests/MultiWindowLayoutUITests \
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= test
+
+python3 scripts/check-layout-localizations.py
+git diff --check
 ```
+
+移除 `-only-testing` 参数可运行完整测试套件；本次没有完成完整界面测试套件。
 
 Debug UI 预览参数：`--ui-preview-multi-layout`；加 `--ui-preview-multi-layout-partial` 可模拟部分失败与仅失败项重试。两种参数均不操作真实窗口、不写正式设置、不申请权限。旧单窗口参数 `--ui-preview-layout` 保留。
 
@@ -83,4 +79,4 @@ Debug UI 预览参数：`--ui-preview-multi-layout`；加 `--ui-preview-multi-la
 
 需求为《Tidest 窗口定位与快速布局重构需求》v0。Library 下载及一次有界重试失败后，父任务补充了完整正文，之后未继续重试。本文将推荐细节列为采用的实现默认值，并未将其改称逐项确认的产品决策。
 
-本任务仅本地开发。未推送、未创建 PR、未发布，也未修改签名、更新源、遥测配置或其他仓库。
+本记录覆盖本地审查、修复与合入验证，不代表版本发布或完整实机验收。发布状态以独立发布记录为准。

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 nonisolated enum LayoutSplitAxis: String, Codable, Sendable {

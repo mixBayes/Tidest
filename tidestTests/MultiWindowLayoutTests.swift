@@ -1,10 +1,7 @@
+import CoreGraphics
 import Foundation
 import XCTest
-#if os(Linux)
-@testable import LayoutLogic
-#else
 @testable import tidest
-#endif
 
 final class MultiWindowLayoutTests: XCTestCase {
     private struct Original: Identifiable, Equatable, Sendable {

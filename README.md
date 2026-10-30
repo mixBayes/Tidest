@@ -164,9 +164,7 @@ Tidest uses SwiftUI and AppKit, with Accessibility for window control and Screen
 
 ### Tests and UI previews
 
-Geometry and draft tests run on Linux with Swift 6.2 using `scripts/test-layout-logic.sh`. They do not validate SwiftUI, AppKit, or real window control.
-
-Run the test suites with:
+Tidest is a macOS app. Geometry, draft, controller, and UI tests run with Xcode on macOS:
 
 ```sh
 xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \

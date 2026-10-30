@@ -205,6 +205,7 @@
 "已减少动态效果，可拖动进度或点击步骤" = "Reduced motion is on. Drag the bar or choose a step.";
 "播放进度" = "Playback progress";
 "使用统计" = "Usage Statistics";
+"操作统计" = "Usage Statistics";
 "今日使用" = "Today";
 "累计使用" = "All Time";
 "最近 7 天" = "Last 7 Days";

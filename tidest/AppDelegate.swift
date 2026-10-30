@@ -219,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if settings.pinningEnabled { addShortcut("拾取窗口", settings.pinShortcut) }
         addAction(settings.text("使用说明"), #selector(showUsageGuide))
-        addAction(settings.text("使用统计"), #selector(showStatistics))
+        addAction(settings.text("操作统计"), #selector(showStatistics))
         menu.addItem(.separator())
         let aboutTitle = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
             .map { settings.text("关于 Tidest %@", $0) } ?? settings.text("关于 Tidest")

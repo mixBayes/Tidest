@@ -188,8 +188,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             guard !Task.isCancelled, isPresented else { return }
             let highlightedID = filteredWindows.indices.contains(highlightedWindow) ? filteredWindows[highlightedWindow].id : nil
             windows = choices
-            highlightedWindow = highlightedID.flatMap { id in filteredWindows.firstIndex { $0.id == id } }
-                ?? filteredWindows.firstIndex { assignedRegionNumber(for: $0.id) == nil } ?? 0
+            highlightedWindow = highlightedID.flatMap { id in self.filteredWindows.firstIndex { $0.id == id } }
+                ?? filteredWindows.firstIndex { self.assignedRegionNumber(for: $0.id) == nil } ?? 0
             isLoading = false
             loading = nil
         }
@@ -373,18 +373,18 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, isPresented else { return }
-                displays = LayoutDisplay.current()
-                displayInvalidated = displays != topology
-                confirming = false
-                if displayInvalidated { operation?.cancel() }
+                guard let self, self.isPresented else { return }
+                self.displays = LayoutDisplay.current()
+                self.displayInvalidated = self.displays != self.topology
+                self.confirming = false
+                if self.displayInvalidated { self.operation?.cancel() }
             }
         }
         if !previewMode {
             let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, isPresented, !isApplying, loading == nil else { return }
-                    reloadWindows()
+                    guard let self, self.isPresented, !self.isApplying, self.loading == nil else { return }
+                    self.reloadWindows()
                 }
             }
             refreshTimer = timer
