@@ -139,6 +139,27 @@ final class MultiWindowLayoutPreviewTests: XCTestCase {
         XCTAssertEqual(controller.draft?.assignments[region], first)
     }
 
+    func testUnchangedSearchPreservesSelectionAndChangedSearchResetsIt() throws {
+        let controller = try makeController(CaptureProbe())
+        defer { controller.dismiss() }
+        controller.present(preview: true)
+        controller.selectRegion(try XCTUnwrap(controller.draft?.root.leafIDs.first))
+        controller.highlightedWindow = 1
+        controller.search = ""
+        XCTAssertEqual(controller.highlightedWindow, 1,
+                       "The search field writing back its current text must not reset the selection")
+
+        let query = controller.windows[0].window.applicationName
+        controller.search = query
+        XCTAssertEqual(controller.highlightedWindow, 0)
+        XCTAssertGreaterThan(controller.filteredWindows.count, 1)
+        controller.highlightedWindow = 1
+        controller.search = query
+        XCTAssertEqual(controller.highlightedWindow, 1)
+        controller.search = ""
+        XCTAssertEqual(controller.highlightedWindow, 0)
+    }
+
     func testPreviewPlacementKeepsBothCardsInsideOffsetAndNarrowScreens() {
         for area in [CGRect(x: 0, y: 0, width: 1728, height: 1084),
                      CGRect(x: 60, y: 24, width: 900, height: 1386),

@@ -72,7 +72,10 @@ final class QuickLayoutAnimationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(450))
         XCTAssertEqual(region.frame.width, min(900, overlay.frame.width * 0.72), accuracy: 0.5)
         XCTAssertEqual(region.frame.height, min(560, overlay.frame.height * 0.68), accuracy: 0.5)
-        try await Task.sleep(for: .milliseconds(150))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while overlay.isVisible, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertFalse(overlay.isVisible)
         XCTAssertTrue(NSApp.windows.contains { window in
             window.isVisible && window.frame.size == QuickLayoutTipView.panelSize

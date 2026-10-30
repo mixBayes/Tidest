@@ -35,7 +35,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         }
     }
     @Published var search = "" {
-        didSet { highlightedWindow = filteredWindows.firstIndex { assignedRegionNumber(for: $0.id) == nil } ?? 0 }
+        didSet {
+            guard search != oldValue else { return }
+            highlightedWindow = filteredWindows.firstIndex { assignedRegionNumber(for: $0.id) == nil } ?? 0
+        }
     }
     @Published var highlightedWindow = 0
     @Published var pendingEdit: Edit?
