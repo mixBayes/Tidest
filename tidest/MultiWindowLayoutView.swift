@@ -1185,10 +1185,12 @@ private struct LayoutWindowSelection: View {
 
     var body: some View {
         let frames = activePlacement ?? placement
-        let previewOffset: CGFloat = frames.preview.midX > frames.picker.midX ? -18 : 18
+        let previewOnRight = frames.preview.midX > frames.picker.midX
+        let previewOffset: CGFloat = previewOnRight ? -18 : 18
         ZStack(alignment: .topLeading) {
             if let preview = displayedPreview, let centerY = previewCenterY {
-                LayoutWindowPreview(preview: preview, settings: settings, size: frames.preview.size)
+                LayoutWindowPreview(preview: preview, settings: settings, size: frames.preview.size,
+                                    alignment: previewOnRight ? .leading : .trailing)
                     .position(x: frames.preview.midX, y: centerY)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: centerY)
                     .transition(.offset(x: reduceMotion ? 0 : previewOffset).combined(with: .opacity))
@@ -1296,6 +1298,7 @@ private struct LayoutWindowPreview: View {
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGSize
+    let alignment: Alignment
 
     var body: some View {
         ZStack {
@@ -1312,7 +1315,7 @@ private struct LayoutWindowPreview: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
             .id(preview.id)
             .transition(.opacity)
             .zIndex(1)
