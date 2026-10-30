@@ -68,6 +68,12 @@ struct SwitcherView: View {
                     Button { model.choose(index) } label: {
                         WindowCard(window: window, thumbnail: model.thumbnails[window.id], selected: depth == 0)
                             .frame(width: layout.cardWidths[index], height: layout.cardHeight)
+                            .overlay {
+                                if depth == 0 {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 2.5)
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                     .rotation3DEffect(.degrees(depth == 0 ? 0 : -direction * WindowRowLayout.angle), axis: (x: 0, y: 1, z: 0), perspective: WindowRowLayout.perspective)

@@ -67,11 +67,15 @@ struct QuickLayoutView: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Text(settings.layoutShortcut.symbolDisplayName)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 5))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2.5)
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                    }
                     .accessibilityHidden(true)
             }
             HStack(spacing: 10) {
@@ -117,12 +121,21 @@ struct QuickLayoutView: View {
                     .frame(width: 70, height: 40)
                 HStack(spacing: 5) {
                     Text("\(layout.rawValue)")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(hovered ? Color.accentColor : Color.secondary)
-                        .frame(width: 15, height: 15)
-                        .background(hovered ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
-                                    in: RoundedRectangle(cornerRadius: 4))
+                        .frame(width: 16, height: 16)
+                        .background(
+                            hovered ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.05),
+                            in: RoundedRectangle(cornerRadius: 4)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(
+                                    hovered ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12),
+                                    lineWidth: 0.8
+                                )
+                        }
                     Text(settings.text(layout.titleKey))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.primary)

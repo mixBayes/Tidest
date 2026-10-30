@@ -121,7 +121,7 @@ struct MultiWindowLayoutView: View {
     private var toolbar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: "rectangle.split.2x1").foregroundStyle(.blue)
+                Image(systemName: "rectangle.split.2x1").foregroundStyle(Color(red: 0.0, green: 0.90, blue: 0.60))
                 Text(settings.text("组合布局")).font(.system(size: 14, weight: .semibold)).fixedSize()
                 Divider().frame(height: 18)
                 layoutChoices
@@ -443,13 +443,14 @@ private struct LayoutToolbarIconStyle: ButtonStyle {
     @State private var hovered = false
 
     func makeBody(configuration: Configuration) -> some View {
+        let mint = Color(red: 0.0, green: 0.96, blue: 0.63)
         configuration.label
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(selected ? Color.accentColor : .white)
+            .foregroundStyle(selected ? mint : .white)
             .frame(width: 34, height: 30)
             .background {
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Color.accentColor.opacity(0.2) : .clear)
+                    .fill(selected ? mint.opacity(0.20) : .clear)
                     .overlay {
                         RoundedRectangle(cornerRadius: 7)
                             .fill(.white.opacity(isEnabled ? (configuration.isPressed ? 0.16 : (hovered ? 0.08 : 0)) : 0))
@@ -549,7 +550,7 @@ private struct LayoutDraftCanvas: View {
     @State private var resizeOrigin: LayoutDividerGeometry?
     @State private var cellDrag: CellDrag?
     @GestureState private var draggingCard = false
-    private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+    private let highlight = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     private struct CellDrag {
         let id = UUID()
@@ -701,7 +702,12 @@ private struct LayoutDraftCanvas: View {
         let controlsWidth: CGFloat = CGFloat((canDelete ? 1 : 0) + (canClear ? 1 : 0)) * 28
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
-                Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                Rectangle().fill(hovered ? highlight.opacity(0.11) : Color.white.opacity(0.055))
+                    .overlay {
+                        Rectangle()
+                            .inset(by: 1)
+                            .strokeBorder(highlight.opacity(hovered ? 0.35 : 0), lineWidth: 1.5)
+                    }
                     .opacity(revealing ? 0 : 1)
                     .contentShape(Rectangle())
             }
@@ -784,7 +790,9 @@ private struct LayoutDraftCanvas: View {
                             .truncationMode(.tail)
                             .foregroundStyle(.white.opacity(emphasized ? 0.95 : 0.8))
                     } else {
-                        Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
+                        Image(systemName: "macwindow.badge.plus")
+                            .font(.system(size: 24, weight: .light))
+                            .foregroundStyle(emphasized ? highlight : .white.opacity(0.88))
                         Text(settings.text(draft.assignments[region] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
                             .font(.system(size: 14, weight: .medium))
                     }
@@ -800,8 +808,8 @@ private struct LayoutDraftCanvas: View {
         .background {
             let shape = RoundedRectangle(cornerRadius: compact ? 8 : 14)
             shape.fill(.regularMaterial)
-            shape.fill(Color(red: 0.24, green: 0.34, blue: 0.48).opacity(emphasized ? 0.98 : 0))
-            shape.strokeBorder(emphasized ? highlight.opacity(0.85) : .white.opacity(0.16), lineWidth: 1)
+            shape.fill(Color(red: 0.12, green: 0.16, blue: 0.23).opacity(emphasized ? 0.94 : 0))
+            shape.strokeBorder(emphasized ? highlight.opacity(0.92) : .white.opacity(0.16), lineWidth: emphasized ? 1.5 : 1)
         }
         .shadow(color: .black.opacity(emphasized ? 0.3 : 0.12), radius: 16, y: 5)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: emphasized)
@@ -895,7 +903,7 @@ private struct LayoutDraftCanvas: View {
             ForEach(drag.original.root.leafIDs, id: \.self) { id in
                 if let leaf = leaves.first(where: { $0.region.id == id }) {
                     let targeted = drag.target == .swap(id) || (id == drag.source && isEdgeDrop(drag.target))
-                    Rectangle().fill(highlight.opacity(targeted ? 0.17 : 0))
+                    Rectangle().fill(highlight.opacity(targeted ? 0.11 : 0))
                         .overlay {
                             Rectangle().inset(by: 2).strokeBorder(highlight.opacity(targeted ? 0.95 : 0), lineWidth: 2)
                                 .shadow(color: highlight.opacity(targeted ? 0.55 : 0), radius: 10)
@@ -1150,7 +1158,7 @@ private struct LayoutSplitTrace: View, Animatable {
             }
             // The moving divider pulls the highlighted cell out of the clicked
             // edge; the rest of the original cell keeps its normal background.
-            fillRegion(from: baseline, to: across, color: highlight.opacity(0.22))
+            fillRegion(from: baseline, to: across, color: highlight.opacity(0.11))
             fillRegion(from: across, to: nearEdge ? breadth : 0, color: .white.opacity(0.055))
 
             var glow = context
@@ -1762,7 +1770,7 @@ private struct LayoutWindowPicker: View {
     @State private var lastHoverLocation: CGPoint?
     @State private var pointerSelection: UUID?
     @State private var hoveredWindowID: UUID?
-    private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+    private let highlight = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     private var highlightedWindowID: UUID? {
         guard controller.filteredWindows.indices.contains(controller.highlightedWindow) else { return nil }

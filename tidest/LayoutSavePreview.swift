@@ -14,10 +14,10 @@ struct LayoutSavePreview: View {
                     let width = max(0, leaf.frame.width * geometry.size.width - 3)
                     let height = max(0, leaf.frame.height * geometry.size.height - 3)
                     RoundedRectangle(cornerRadius: min(10, min(width, height) * 0.08))
-                        .fill(Color(red: 0.10, green: 0.17, blue: 0.24).opacity(0.96))
+                        .fill(Color(red: 0.12, green: 0.16, blue: 0.23).opacity(0.96))
                         .overlay {
                             RoundedRectangle(cornerRadius: min(10, min(width, height) * 0.08))
-                                .strokeBorder(Color(red: 0.40, green: 0.71, blue: 1).opacity(0.85), lineWidth: 1)
+                                .strokeBorder(Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.88), lineWidth: 1)
                         }
                         .overlay {
                             if let icon = icons[leaf.region.id] {

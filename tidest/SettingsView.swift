@@ -117,24 +117,34 @@ struct SettingsView: View {
         .accessibilityIdentifier("settingsTabs")
     }
 
+    private static let brandAmber = Color(red: 0.83, green: 0.57, blue: 0.09)
+
     private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14, content: content)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(.primary.opacity(0.06), lineWidth: 1)
+            }
     }
 
     private func settingsTab(_ tab: SettingsTab, title: String, identifier: String) -> some View {
         let selected = selectedTab == tab
         return Button { selectedTab = tab } label: {
             Text(settings.text(title))
-                .font(.system(size: 13, weight: selected ? .medium : .regular))
-                .foregroundStyle(selected ? .primary : .secondary)
+                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Color.accentColor : .secondary)
                 .frame(width: 80, height: 28)
                 .background {
                     if selected {
                         RoundedRectangle(cornerRadius: 6)
                             .fill(Color(nsColor: .controlBackgroundColor))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(Color.accentColor.opacity(0.28), lineWidth: 1)
+                            }
                             .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
                     }
                 }
@@ -147,7 +157,7 @@ struct SettingsView: View {
 
     private var displaySettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            settingTitle("切换窗口", icon: "rectangle.3.group", iconColor: .blue)
+            settingTitle("切换窗口", icon: "rectangle.3.group", iconColor: .accentColor)
             HStack(spacing: 12) {
                 displayModeOption(.carousel, imageName: "ModeCarousel")
                 displayModeOption(.tiled, imageName: "ModeTiled")
@@ -220,7 +230,7 @@ struct SettingsView: View {
     private var quickLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             permissionLabel("单窗布局", purpose: "调整鼠标所指窗口的位置和大小", icon: "rectangle.split.2x2",
-                            iconColor: Color(red: 0.82, green: 0.40, blue: 0.12))
+                            iconColor: Self.brandAmber)
             HStack(spacing: 12) {
                 Text(settings.text("单窗布局快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
@@ -254,7 +264,7 @@ struct SettingsView: View {
     private var multiLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             permissionLabel("组合布局", purpose: "在屏幕上划分区域，一次排列多个窗口", icon: "rectangle.3.group",
-                            iconColor: .blue)
+                            iconColor: .accentColor)
             HStack {
                 Text(settings.text("组合布局快捷键"))
                 Spacer()
@@ -292,7 +302,7 @@ struct SettingsView: View {
                     onPinEnabledChange(enabled)
                 }
             )) {
-                permissionLabel("停靠窗口", purpose: "把常用窗口的预览放到屏幕侧边", icon: "sidebar.right", iconColor: .purple)
+                permissionLabel("停靠窗口", purpose: "把常用窗口的预览放到屏幕侧边", icon: "sidebar.right", iconColor: Self.brandAmber)
             }
             .toggleStyle(.switch)
             .accessibilityIdentifier("pinningEnabledSwitch")

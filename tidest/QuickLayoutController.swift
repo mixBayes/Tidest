@@ -521,10 +521,10 @@ private final class QuickLayoutHighlightView: NSView {
         for region in visibleRegions { visible.addRect(region) }
         context.addPath(visible)
         context.clip()
-        let accent = NSColor(calibratedRed: 0.24, green: 0.53, blue: 1, alpha: 1)
-        context.setFillColor(accent.withAlphaComponent(0.10).cgColor)
+        let accent = NSColor(srgbRed: 0.0, green: 0.85, blue: 0.56, alpha: 1)
+        context.setFillColor(accent.withAlphaComponent(0.07).cgColor)
         context.fill(windowFrame)
-        context.setStrokeColor(accent.withAlphaComponent(0.88).cgColor)
+        context.setStrokeColor(accent.withAlphaComponent(0.90).cgColor)
         context.setLineWidth(2)
         let outline = CGPath(roundedRect: windowFrame.insetBy(dx: 1, dy: 1),
                              cornerWidth: 8, cornerHeight: 8, transform: nil)

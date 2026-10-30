@@ -37,11 +37,11 @@ struct ContentView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     if let permissionKey {
                         Text(settings.text(permissionKey))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(.quaternary, in: Capsule())
+                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
                     }
                 }
             }
@@ -197,9 +197,9 @@ struct ContentView: View {
 
     private var iconColor: Color {
         switch guide {
-        case .accessibility: .blue
-        case .screenCapture: .blue
-        case .granted: .green
+        case .accessibility: .accentColor
+        case .screenCapture: Color(red: 0.83, green: 0.57, blue: 0.09)
+        case .granted: .accentColor
         }
     }
 

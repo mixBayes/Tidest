@@ -135,10 +135,10 @@ private final class PinnedWindowHighlightView: NSView {
         context.saveGState()
         defer { context.restoreGState() }
         context.clip(to: bounds)
-        let accent = NSColor(srgbRed: 70.0 / 255.0, green: 123.0 / 255.0, blue: 227.0 / 255.0, alpha: 1)
-        context.setFillColor(accent.withAlphaComponent(0.10).cgColor)
+        let accent = NSColor(srgbRed: 0.0, green: 0.85, blue: 0.56, alpha: 1)
+        context.setFillColor(accent.withAlphaComponent(0.07).cgColor)
         context.fill(windowFrame)
-        context.setStrokeColor(accent.withAlphaComponent(0.88).cgColor)
+        context.setStrokeColor(accent.withAlphaComponent(0.90).cgColor)
         context.setLineWidth(2)
         // Draw the original window outline, clipped to this visible region.
         // Occlusion cuts never acquire their own interior border lines.

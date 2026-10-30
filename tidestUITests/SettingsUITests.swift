@@ -140,7 +140,7 @@ final class SettingsUITests: XCTestCase {
     func testLanguageAndDisplayModeChangeImmediately() {
         let app = launchSettings(language: "en")
         XCTAssertTrue(app.windows["Settings"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Switch windows"].exists)
+        XCTAssertTrue(app.staticTexts["Switch Windows"].exists)
         selectSettingsTab("General", in: app)
         let languagePicker = picker(app, identifier: "languagePicker")
         assertSelection("English", picker: languagePicker)

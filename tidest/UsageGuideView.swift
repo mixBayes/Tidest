@@ -159,10 +159,15 @@ struct UsageGuideView: View {
                     .accessibilityIdentifier("usageProgress")
                     HStack(spacing: 10) {
                         Text(topic.shortcut(settings)?.symbolDisplayName ?? settings.text("未设置"))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .padding(.horizontal, 9)
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(Color.primary.opacity(0.16), lineWidth: 1)
+                            }
+                            .shadow(color: .black.opacity(0.10), radius: 0, y: 1.5)
                             .accessibilityLabel(topic.shortcut(settings)?.displayName ?? settings.text("未设置"))
                             .accessibilityIdentifier("usageShortcut")
                         Text("0:\(String(format: "%02d", Int(progress * UsageTimeline.duration))) / 0:09")
@@ -519,11 +524,18 @@ private struct UsageDemo: View {
 
     private func keycap(_ label: String, active: Bool) -> some View {
         Text(label)
-            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .foregroundStyle(active ? Color.accentColor : Color.secondary)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(active ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.12)) }
+            .foregroundStyle(active ? Color(red: 0.08, green: 0.15, blue: 0.12) : Color.secondary)
+            .background(active ? Color(red: 1.0, green: 0.82, blue: 0.36) : Color(nsColor: .windowBackgroundColor),
+                        in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(active ? Color(red: 0.83, green: 0.60, blue: 0.10) : Color.primary.opacity(0.16),
+                                  lineWidth: 1)
+            }
+            .shadow(color: active ? Color(red: 0.83, green: 0.60, blue: 0.10).opacity(0.85) : .black.opacity(0.12),
+                    radius: 0, y: active ? 1 : 2)
     }
 
     private func pointer(clickStrength: Double) -> some View {
