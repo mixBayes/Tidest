@@ -5,6 +5,17 @@ nonisolated enum LayoutSplitAxis: String, Codable, Sendable {
     case columns, rows
 }
 
+nonisolated enum LayoutSplitEdge: String, Sendable {
+    case left, right, top, bottom
+
+    var axis: LayoutSplitAxis {
+        switch self {
+        case .left, .right: .columns
+        case .top, .bottom: .rows
+        }
+    }
+}
+
 /// Only structure and normalized ratios are persisted. No window or display identity belongs here.
 nonisolated indirect enum LayoutRegion: Codable, Equatable, Sendable {
     case leaf(UUID)
@@ -247,17 +258,18 @@ nonisolated struct MultiWindowLayoutDraft: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func split(_ axis: LayoutSplitAxis, confirmed: Bool = false, minimumSize: CGSize = .zero) -> Bool {
-        guard let selectedRegion, root.leafIDs.contains(selectedRegion),
-              confirmed || assignments[selectedRegion] == nil else { return false }
+    mutating func split(_ edge: LayoutSplitEdge, minimumSize: CGSize = .zero) -> Bool {
+        guard let selectedRegion, root.leafIDs.contains(selectedRegion) else { return false }
         let first = UUID(), second = UUID()
-        let replacement = LayoutRegion.split(selectedRegion, axis, 0.5, .leaf(first), .leaf(second))
+        let replacement = LayoutRegion.split(selectedRegion, edge.axis, 0.5, .leaf(first), .leaf(second))
         let updated = root.replacing(selectedRegion, with: replacement)
         guard updated.isValid, updated.fits(minimumSize: minimumSize) else { return false }
         checkpoint()
-        assignments[selectedRegion] = nil
+        // The clicked edge gets an empty region; the opposite half keeps the window.
+        let retained = edge == .left || edge == .top ? second : first
+        assignments[retained] = assignments.removeValue(forKey: selectedRegion)
         root = updated
-        self.selectedRegion = first
+        self.selectedRegion = retained
         return true
     }
 

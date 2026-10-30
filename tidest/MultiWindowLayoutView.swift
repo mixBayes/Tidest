@@ -23,13 +23,15 @@ struct MultiWindowLayoutView: View {
                     .frame(width: max(0, area.width - 40), alignment: .leading)
                     .offset(x: area.minX + 20, y: area.minY + 16)
                 if controller.choosingWindow {
-                    let size = CGSize(width: min(350, area.width - 32), height: min(430, area.height - 112))
+                    let placement = pickerPlacement(in: area)
                     LayoutWindowPicker(controller: controller, settings: settings)
                         .padding(16)
-                        .frame(width: size.width, height: size.height)
+                        .frame(width: placement.picker.width, height: placement.picker.height)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                         .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
-                        .position(pickerCenter(in: area, size: size))
+                        .position(x: placement.picker.midX, y: placement.picker.midY)
+                    LayoutWindowPreview(controller: controller, settings: settings, size: placement.preview.size)
+                        .position(x: placement.preview.midX, y: placement.preview.midY)
                 }
                 if !controller.outcomes.isEmpty {
                     results.padding(18)
@@ -156,12 +158,11 @@ struct MultiWindowLayoutView: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func pickerCenter(in area: CGRect, size: CGSize) -> CGPoint {
+    private func pickerPlacement(in area: CGRect) -> LayoutWindowPickerPlacement {
         let leaf = controller.draft?.root.leaves.first { $0.region.id == controller.draft?.selectedRegion }
         let x = area.minX + (leaf?.frame.midX ?? 0.5) * area.width
         let y = area.minY + (leaf?.frame.midY ?? 0.5) * area.height
-        return CGPoint(x: min(area.maxX - size.width / 2 - 16, max(area.minX + size.width / 2 + 16, x)),
-                       y: min(area.maxY - size.height / 2 - 16, max(area.minY + size.height / 2 + 88, y)))
+        return LayoutWindowPickerPlacement(area: area, anchor: CGPoint(x: x, y: y))
     }
 
     private func chooseLayout(_ root: LayoutRegion) {
@@ -302,6 +303,54 @@ private struct LayoutToolbarActionStyle: ButtonStyle {
     }
 }
 
+/// The same geometry selects the drag target and projects its on-line hint.
+private struct LayoutDividerGeometry: Identifiable {
+    static let resizeDistance: CGFloat = 36
+    static let buttonRadius: CGFloat = 44
+    static let handleRadius: CGFloat = 18
+    let id: UUID
+    let axis: LayoutSplitAxis
+    let frame: CGRect
+    let ratio: Double
+
+    init?(_ placement: LayoutRegion.Placement, size: CGSize) {
+        guard case .split(let id, let axis, let ratio, _, _) = placement.region else { return nil }
+        self.id = id
+        self.axis = axis
+        self.ratio = ratio
+        frame = CGRect(x: placement.frame.minX * size.width, y: placement.frame.minY * size.height,
+                       width: placement.frame.width * size.width, height: placement.frame.height * size.height)
+    }
+
+    var vertical: Bool { axis == .columns }
+    var position: CGFloat { vertical ? frame.minX + frame.width * ratio : frame.minY + frame.height * ratio }
+
+    func distance(to point: CGPoint) -> CGFloat {
+        abs((vertical ? point.x : point.y) - position)
+    }
+
+    func translatedRatio(_ translation: CGSize) -> Double {
+        ratio + (vertical ? translation.width / frame.width : translation.height / frame.height)
+    }
+
+    static func hovered(in root: LayoutRegion, size: CGSize, point: CGPoint) -> Self? {
+        let leaves = root.leaves.map {
+            CGRect(x: $0.frame.minX * size.width, y: $0.frame.minY * size.height,
+                   width: $0.frame.width * size.width, height: $0.frame.height * size.height)
+        }
+        guard let leaf = leaves.first(where: { $0.contains(point) }) else { return nil }
+        let buttons = [CGPoint(x: leaf.minX, y: leaf.midY), CGPoint(x: leaf.maxX, y: leaf.midY),
+                       CGPoint(x: leaf.midX, y: leaf.minY), CGPoint(x: leaf.midX, y: leaf.maxY)]
+        guard !buttons.contains(where: { hypot(point.x - $0.x, point.y - $0.y) <= buttonRadius }) else { return nil }
+        return root.placements().compactMap { Self($0, size: size) }.filter {
+            let along = $0.vertical ? point.y : point.x
+            let start = $0.vertical ? $0.frame.minY : $0.frame.minX
+            let end = $0.vertical ? $0.frame.maxY : $0.frame.maxX
+            return along >= start && along <= end && $0.distance(to: point) <= resizeDistance
+        }.min { $0.distance(to: point) < $1.distance(to: point) }
+    }
+}
+
 @MainActor
 private struct LayoutDraftCanvas: View {
     @ObservedObject var controller: MultiWindowLayoutController
@@ -309,12 +358,13 @@ private struct LayoutDraftCanvas: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var splitOrigin: SplitOrigin?
     @State private var holdingSplitButton = false
+    @State private var resizeOrigin: LayoutDividerGeometry?
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
 
     private struct SplitOrigin {
         let id = UUID()
         let regionID: UUID
-        let edge: String
+        let edge: LayoutSplitEdge
     }
 
     private var splittingRegion: LayoutRegion.Placement? {
@@ -329,17 +379,30 @@ private struct LayoutDraftCanvas: View {
         return controller.draft?.root.leaves.first { $0.frame.contains(pointer) }?.region.id
     }
 
+    private func resizeTarget(in size: CGSize) -> LayoutDividerGeometry? {
+        guard let draft = controller.draft, !controller.isApplying, controller.outcomes.isEmpty,
+              !controller.choosingWindow, splittingRegion == nil else { return nil }
+        if let resizeOrigin {
+            return draft.root.placements().first { $0.region.id == resizeOrigin.id }
+                .flatMap { LayoutDividerGeometry($0, size: size) }
+        }
+        guard let pointer = controller.pointer else { return nil }
+        return LayoutDividerGeometry.hovered(in: draft.root, size: size,
+                                              point: CGPoint(x: pointer.x * size.width, y: pointer.y * size.height))
+    }
+
     var body: some View {
         GeometryReader { geometry in
             if let draft = controller.draft {
+                let resizeTarget = resizeTarget(in: geometry.size)
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(draft.root.leaves.enumerated()), id: \.element.region.id) { index, leaf in
                         region(leaf, index: index, size: geometry.size)
                     }
                     ForEach(draft.root.placements(), id: \.region.id) { placement in
-                        if case .split(_, let axis, let ratio, _, _) = placement.region,
+                        if let divider = LayoutDividerGeometry(placement, size: geometry.size),
                            placement.region.id != splittingRegion?.region.id {
-                            divider(placement, axis: axis, ratio: ratio, size: geometry.size)
+                            dividerControl(divider, active: resizeTarget?.id == divider.id)
                         }
                     }
                     // Shared edges keep one continuous baseline. Split controls
@@ -357,7 +420,8 @@ private struct LayoutDraftCanvas: View {
                                      origin: CGPoint(x: (rect.minX + (vertical ? rect.width * ratio : 0)) * geometry.size.width,
                                                      y: (rect.minY + (vertical ? 0 : rect.height * ratio)) * geometry.size.height),
                                      length: vertical ? rect.height * geometry.size.height : rect.width * geometry.size.width,
-                                     size: geometry.size)
+                                     size: geometry.size,
+                                     resizeTarget: resizeTarget?.id == placement.region.id ? resizeTarget : nil)
                         }
                     }
                     if let placement = splittingRegion, let origin = splitOrigin,
@@ -377,19 +441,26 @@ private struct LayoutDraftCanvas: View {
                     }
                 }
                 .allowsHitTesting(splittingRegion == nil)
+                .onChange(of: resizeTarget?.id) { _, _ in updateResizeCursor(resizeTarget) }
+                .onChange(of: controller.pointer) { _, _ in
+                    if resizeTarget != nil { updateResizeCursor(resizeTarget) }
+                }
+                .onDisappear { if resizeTarget != nil { NSCursor.arrow.set() } }
             }
         }
         .coordinateSpace(name: "layoutCanvas")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("multiLayoutCanvas")
-        .onChange(of: controller.pendingEdit != nil) { _, pending in
-            // Cancelled or rejected splits never start a visual transition.
-            if !pending && splittingRegion == nil { splitOrigin = nil }
-        }
         .onChange(of: controller.draft?.root) { _, _ in
-            if controller.pendingEdit == nil && splittingRegion == nil { splitOrigin = nil }
+            if splittingRegion == nil { splitOrigin = nil }
         }
-        .onChange(of: controller.target?.id) { _, _ in splitOrigin = nil }
+        .onChange(of: controller.target?.id) { _, _ in
+            splitOrigin = nil
+            resizeOrigin = nil
+        }
+        .onChange(of: controller.isPresented) { _, presented in
+            if !presented { resizeOrigin = nil }
+        }
         .onChange(of: reduceMotion) { _, reduced in if reduced { splitOrigin = nil } }
     }
 
@@ -397,7 +468,7 @@ private struct LayoutDraftCanvas: View {
         let choice = controller.draft?.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
         let hovered = hoveredRegion == leaf.region.id && !controller.isApplying && controller.outcomes.isEmpty
         let revealing = splittingRegion?.region.leafIDs.contains(leaf.region.id) == true
-        let showingControls = hovered && !controller.choosingWindow && splittingRegion == nil
+        let showingControls = hovered && !controller.choosingWindow && splittingRegion == nil && resizeOrigin == nil
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
         let compact = height < 240 || width < 240
@@ -473,23 +544,25 @@ private struct LayoutDraftCanvas: View {
         .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
     }
 
-    private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> some View {
-        LayoutBoundaryView(vertical: vertical, length: length,
+    private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize,
+                          resizeTarget: LayoutDividerGeometry? = nil) -> some View {
+        let pointer = controller.pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) }
+        let resizeCenter = resizeTarget.flatMap { _ in pointer.map { min(length, max(0, vertical ? $0.y : $0.x)) } }
+        return LayoutBoundaryView(vertical: vertical, length: length,
                            tabs: boundaryTabs(vertical: vertical, origin: origin, length: length, size: size),
                            hoveredRegion: hoveredRegion,
-                           pointer: controller.pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) },
-                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil,
+                           pointer: pointer,
+                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil && resizeOrigin == nil,
                            heldRegion: holdingSplitButton && splittingRegion != nil ? splitOrigin?.regionID : nil,
                            heldEdge: holdingSplitButton && splittingRegion != nil ? splitOrigin?.edge : nil,
+                           resizeCenter: resizeCenter, isResizing: resizeOrigin != nil,
                            highlight: highlight,
                            label: settings.text(vertical ? "垂直分裂" : "水平分裂")) { id, edge in
             // Capture the actual edge before the model replaces this leaf.
-            // If clearing a window choice needs confirmation, keep this origin
-            // until the confirmed split appears in the model.
             splitOrigin = reduceMotion ? nil : SplitOrigin(regionID: id, edge: edge)
             holdingSplitButton = !reduceMotion
-            controller.splitRegion(id, axis: vertical ? .columns : .rows)
-            if controller.pendingEdit == nil && splittingRegion == nil { splitOrigin = nil }
+            controller.splitRegion(id, edge: edge)
+            if splittingRegion == nil { splitOrigin = nil }
         }
         .offset(x: origin.x - (vertical ? 32 : 0), y: origin.y - (vertical ? 0 : 32))
     }
@@ -509,48 +582,51 @@ private struct LayoutDraftCanvas: View {
             else if abs(line - far) < 0.5 { inward = -1 }
             else { return nil }
             return LayoutBoundaryView.Tab(regionID: leaf.region.id, index: index,
-                                          edge: vertical ? (inward > 0 ? "left" : "right") : (inward > 0 ? "top" : "bottom"),
+                                          edge: vertical ? (inward > 0 ? .left : .right) : (inward > 0 ? .top : .bottom),
                                           start: start, end: end, inward: inward)
         }
     }
 
-    private func divider(_ placement: LayoutRegion.Placement, axis: LayoutSplitAxis, ratio: Double, size: CGSize) -> some View {
-        let rect = placement.frame
-        let vertical = axis == .columns
+    private func dividerControl(_ divider: LayoutDividerGeometry, active: Bool) -> some View {
+        let vertical = divider.vertical
+        let reach = LayoutDividerGeometry.resizeDistance
         return Rectangle().fill(Color.white.opacity(0.001))
-        .frame(width: vertical ? 12 : rect.width * size.width,
-               height: vertical ? rect.height * size.height : 12)
+        .frame(width: vertical ? reach * 2 : divider.frame.width,
+               height: vertical ? divider.frame.height : reach * 2)
         .contentShape(Rectangle())
-        .offset(x: vertical ? (rect.minX + rect.width * ratio) * size.width - 6 : rect.minX * size.width,
-                y: vertical ? rect.minY * size.height : (rect.minY + rect.height * ratio) * size.height - 6)
+        .offset(x: vertical ? divider.position - reach : divider.frame.minX,
+                y: vertical ? divider.frame.minY : divider.position - reach)
         .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("layoutCanvas"))
             .onChanged { value in
-                let fraction = vertical ? (value.location.x / size.width - rect.minX) / rect.width : (value.location.y / size.height - rect.minY) / rect.height
-                controller.resize(placement.region.id, ratio: fraction, ended: false)
+                if resizeOrigin == nil { resizeOrigin = divider }
+                guard let origin = resizeOrigin, origin.id == divider.id else { return }
+                controller.resize(origin.id, ratio: origin.translatedRatio(value.translation), ended: false)
             }
             .onEnded { value in
-                let fraction = vertical ? (value.location.x / size.width - rect.minX) / rect.width : (value.location.y / size.height - rect.minY) / rect.height
-                controller.resize(placement.region.id, ratio: fraction, ended: true)
+                guard let origin = resizeOrigin, origin.id == divider.id else { return }
+                controller.resize(origin.id, ratio: origin.translatedRatio(value.translation), ended: true)
+                resizeOrigin = nil
             })
-        .onHover { inside in
-            if inside { (vertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() }
-            else { NSCursor.pop() }
-        }
-        .allowsHitTesting(!controller.isApplying && controller.outcomes.isEmpty && !controller.choosingWindow)
+        .allowsHitTesting(active)
         .accessibilityLabel(settings.text(vertical ? "左右分隔线" : "上下分隔线"))
-        .accessibilityValue("\(Int(ratio * 100))%")
-        .accessibilityIdentifier("multiLayoutDivider-\(placement.region.id)")
+        .accessibilityValue("\(Int(divider.ratio * 100))%")
+        .accessibilityIdentifier("multiLayoutDivider-\(divider.id)")
         .accessibilityAdjustableAction { direction in
             guard !controller.isApplying, controller.outcomes.isEmpty else { return }
-            controller.resize(placement.region.id, ratio: ratio + (direction == .increment ? 0.05 : -0.05), ended: true)
+            controller.resize(divider.id, ratio: divider.ratio + (direction == .increment ? 0.05 : -0.05), ended: true)
         }
+    }
+
+    private func updateResizeCursor(_ divider: LayoutDividerGeometry?) {
+        guard let divider else { NSCursor.arrow.set(); return }
+        (divider.vertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).set()
     }
 }
 
 @MainActor
 private struct LayoutSplitReveal: View {
     let axis: LayoutSplitAxis
-    let edge: String
+    let edge: LayoutSplitEdge
     let ratio: CGFloat
     let highlight: Color
     let tracingCompleted: () -> Void
@@ -580,7 +656,7 @@ private struct LayoutSplitReveal: View {
 /// the side borders does the new divider leave the original edge.
 private struct LayoutSplitTrace: View, Animatable {
     let axis: LayoutSplitAxis
-    let edge: String
+    let edge: LayoutSplitEdge
     let ratio: CGFloat
     let highlight: Color
     var traceProgress: CGFloat
@@ -601,7 +677,7 @@ private struct LayoutSplitTrace: View, Animatable {
             let vertical = axis == .columns
             let length = vertical ? size.height : size.width
             let breadth = vertical ? size.width : size.height
-            let nearEdge = edge == "left" || edge == "top"
+            let nearEdge = edge == .left || edge == .top
             let baseline: CGFloat = nearEdge ? 0 : breadth
             let inward: CGFloat = nearEdge ? 1 : -1
             let center = length / 2
@@ -662,11 +738,11 @@ private struct LayoutBoundaryView: View {
     struct Tab: Equatable, Identifiable {
         let regionID: UUID
         let index: Int
-        let edge: String
+        let edge: LayoutSplitEdge
         let start: CGFloat
         let end: CGFloat
         let inward: CGFloat
-        var id: String { "\(regionID)-\(edge)" }
+        var id: String { "\(regionID)-\(edge.rawValue)" }
         var center: CGFloat { (start + end) / 2 }
     }
 
@@ -677,12 +753,15 @@ private struct LayoutBoundaryView: View {
     let pointer: CGPoint?
     let showsControls: Bool
     let heldRegion: UUID?
-    let heldEdge: String?
+    let heldEdge: LayoutSplitEdge?
+    let resizeCenter: CGFloat?
+    let isResizing: Bool
     let highlight: Color
     let label: String
-    let split: (UUID, String) -> Void
+    let split: (UUID, LayoutSplitEdge) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previousTab: Tab?
+    @State private var previousResizeCenter: CGFloat?
 
     private var guideCenters: [CGFloat] {
         // Both sides of a shared edge may have the same midpoint.
@@ -698,7 +777,7 @@ private struct LayoutBoundaryView: View {
         let across = vertical ? pointer.x : pointer.y
         // This radius covers the entire opened control while keeping the
         // activation areas of a region's four guides separate, even in small cells.
-        return hypot(along - tab.center, across) <= 44 ? tab : nil
+        return hypot(along - tab.center, across) <= LayoutDividerGeometry.buttonRadius ? tab : nil
     }
 
     private var controlTabs: [Tab] {
@@ -715,6 +794,8 @@ private struct LayoutBoundaryView: View {
         let tab = heldTab ?? activeTab
         let hoveredTab = tabs.first { $0.regionID == hoveredRegion }
         let animation = reduceMotion ? nil : Animation.easeInOut(duration: 0.18)
+        let resizePosition = resizeCenter ?? previousResizeCenter ?? length / 2
+        let resizeRadius = min(LayoutDividerGeometry.handleRadius, max(0, min(resizePosition, length - resizePosition)))
         ZStack(alignment: .topLeading) {
             ForEach(controlTabs) { attachment in
                 let visible = tab?.id == attachment.id
@@ -730,16 +811,13 @@ private struct LayoutBoundaryView: View {
                 .allowsHitTesting(visible && showsControls)
                 .accessibilityHidden(!visible || !showsControls)
             }
-            // Draw the original straight border above the material so it stays
-            // visible throughout the extra curve's expansion and retraction.
-            LayoutBoundaryContour(vertical: vertical, center: length / 2, depth: 0)
-                .stroke(.white.opacity(0.45), lineWidth: 1)
+            LayoutResizeControl(vertical: vertical, center: resizePosition,
+                                radius: resizeRadius, progress: resizeCenter == nil ? 0 : 1,
+                                pressed: isResizing, hoveredSegment: hoveredTab.map { $0.start...$0.end },
+                                highlight: highlight)
+                .animation(animation, value: resizeCenter != nil)
                 .allowsHitTesting(false)
-            LayoutBoundaryContour(vertical: vertical, center: length / 2, depth: 0,
-                                  segment: hoveredTab.map { $0.start...$0.end })
-                .stroke(highlight, lineWidth: 2)
-                .opacity(hoveredTab == nil ? 0 : 1)
-                .allowsHitTesting(false)
+                .accessibilityHidden(true)
 
             ForEach(guideCenters, id: \.self) { midpoint in
                 let covered = tab.map { abs(midpoint - $0.center) < 0.5 } ?? false
@@ -751,6 +829,9 @@ private struct LayoutBoundaryView: View {
         .frame(width: vertical ? 64 : length, height: vertical ? length : 64)
         .onChange(of: tab, initial: true) { _, value in
             if let value { previousTab = value }
+        }
+        .onChange(of: resizeCenter, initial: true) { _, value in
+            if let value { previousResizeCenter = value }
         }
     }
 
@@ -764,6 +845,137 @@ private struct LayoutBoundaryView: View {
         .position(x: vertical ? 32 : midpoint, y: vertical ? midpoint : 32)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// A circular resize handle grows from the divider, leaving its arrow centered.
+@MainActor
+private struct LayoutResizeControl: View, Animatable {
+    let vertical: Bool
+    let center: CGFloat
+    let radius: CGFloat
+    var progress: CGFloat
+    let pressed: Bool
+    let hoveredSegment: ClosedRange<CGFloat>?
+    let highlight: Color
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let scale = radius / LayoutDividerGeometry.handleRadius
+        let bulge = LayoutResizeContour(vertical: vertical, center: center, radius: radius,
+                                         progress: progress, handleOnly: true)
+        let divider = LayoutResizeContour(vertical: vertical, center: center, radius: radius, progress: progress)
+        ZStack(alignment: .topLeading) {
+            bulge.fill(.regularMaterial)
+            bulge.fill(highlight.opacity(pressed ? 0.32 : 0.12))
+            divider.stroke(.white.opacity(0.45), lineWidth: 1)
+            divider.stroke(highlight, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .opacity(progress)
+            if let hoveredSegment {
+                LayoutResizeContour(vertical: vertical, center: center, radius: radius,
+                                    progress: progress, segment: hoveredSegment)
+                    .stroke(highlight, lineWidth: 2)
+                    .opacity(1 - progress)
+            }
+            resizeSymbol
+                .frame(width: 28, height: 28)
+                .rotationEffect(.degrees(vertical ? 0 : 90))
+                .scaleEffect(scale * (pressed ? 0.9 : 1))
+                .opacity(min(1, max(0, (progress - 0.8) / 0.2)))
+                .position(x: vertical ? 32 : center,
+                          y: vertical ? center : 32)
+        }
+        .transaction { $0.animation = nil }
+    }
+
+    private var resizeSymbol: some View {
+        ZStack {
+            Path { path in
+                path.move(to: CGPoint(x: 10, y: 14))
+                path.addLine(to: CGPoint(x: 4, y: 14))
+                path.move(to: CGPoint(x: 7.5, y: 10.5))
+                path.addLine(to: CGPoint(x: 4, y: 14))
+                path.addLine(to: CGPoint(x: 7.5, y: 17.5))
+                path.move(to: CGPoint(x: 18, y: 14))
+                path.addLine(to: CGPoint(x: 24, y: 14))
+                path.move(to: CGPoint(x: 20.5, y: 10.5))
+                path.addLine(to: CGPoint(x: 24, y: 14))
+                path.addLine(to: CGPoint(x: 20.5, y: 17.5))
+            }
+            .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+            Path { path in
+                path.move(to: CGPoint(x: 14, y: 8))
+                path.addLine(to: CGPoint(x: 14, y: 20))
+            }
+            .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [2, 3]))
+        }
+    }
+}
+
+/// Begin with the split buttons' tangent curve, then round it into a true circle.
+/// The parent samples one progress value for this contour, the fill, highlights and icon.
+private struct LayoutResizeContour: Shape {
+    let vertical: Bool
+    let center: CGFloat
+    let radius: CGFloat
+    let progress: CGFloat
+    var handleOnly = false
+    var segment: ClosedRange<CGFloat>?
+
+    func path(in rect: CGRect) -> Path {
+        func point(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
+            vertical ? CGPoint(x: 32 + across, y: along) : CGPoint(x: along, y: 32 + across)
+        }
+        let length = vertical ? rect.height : rect.width
+        let start = segment?.lowerBound ?? 0
+        let end = segment?.upperBound ?? length
+        var path = Path()
+        guard progress > 0, radius > 0, center >= start, center <= end else {
+            if !handleOnly {
+                path.move(to: point(start, 0))
+                path.addLine(to: point(end, 0))
+            }
+            return path
+        }
+
+        let rounding = progress * progress * (3 - 2 * progress)
+        let initialSpan = min(44, center, length - center)
+        let span = initialSpan + (radius - initialSpan) * rounding
+        let depth = radius * progress
+        if !handleOnly {
+            path.move(to: point(start, 0))
+            path.addLine(to: point(center - span, 0))
+            path.move(to: point(center + span, 0))
+            path.addLine(to: point(end, 0))
+        }
+
+        if progress >= 1 {
+            path.addEllipse(in: CGRect(x: (vertical ? 32 : center) - radius,
+                                      y: (vertical ? center : 32) - radius,
+                                      width: radius * 2, height: radius * 2))
+            return path
+        }
+
+        // Interpolate the existing split curve toward the four circle quadrants.
+        let circleControl: CGFloat = 4 * (sqrt(2) - 1) / 3
+        let entry = span * (0.5 + 0.5 * rounding)
+        let entryDepth = circleControl * depth * rounding
+        let shoulder = span * (28.0 / 44 + (circleControl - 28.0 / 44) * rounding)
+        path.move(to: point(center - span, 0))
+        path.addCurve(to: point(center, depth),
+                      control1: point(center - entry, entryDepth), control2: point(center - shoulder, depth))
+        path.addCurve(to: point(center + span, 0),
+                      control1: point(center + shoulder, depth), control2: point(center + entry, entryDepth))
+        path.addCurve(to: point(center, -depth),
+                      control1: point(center + entry, -entryDepth), control2: point(center + shoulder, -depth))
+        path.addCurve(to: point(center - span, 0),
+                      control1: point(center - shoulder, -depth), control2: point(center - entry, -entryDepth))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -802,7 +1014,7 @@ private struct LayoutBoundaryControl: View, Animatable {
             .buttonStyle(LayoutSplitButtonStyle(vertical: vertical, inward: tab.inward, depth: depth,
                                                hovered: hovered, highlight: highlight))
             .help(label).accessibilityLabel(label)
-            .accessibilityIdentifier("multiLayoutSplit-\(tab.index)-\(tab.edge)")
+            .accessibilityIdentifier("multiLayoutSplit-\(tab.index)-\(tab.edge.rawValue)")
             // Keep the hit target still while the surrounding edge grows.
             .position(x: vertical ? 32 + tab.inward * 17 : tab.center,
                       y: vertical ? tab.center : 32 + tab.inward * 17)
@@ -875,6 +1087,79 @@ private struct LayoutBoundaryContour: Shape {
     }
 }
 
+nonisolated struct LayoutWindowPickerPlacement {
+    let picker: CGRect
+    let preview: CGRect
+
+    init(area: CGRect, anchor: CGPoint) {
+        let margin: CGFloat = 16
+        let gap: CGFloat = 12
+        let scale = min(1, max(0, (area.width - margin * 2 - gap) / 670))
+        let pickerSize = CGSize(width: 350 * scale, height: max(0, min(430, area.height - 112)))
+        let previewSize = CGSize(width: 320 * scale, height: min(240 * scale, pickerSize.height))
+        let minX = area.minX + margin
+        let maxX = area.maxX - margin
+        var x = min(maxX - pickerSize.width, max(minX, anchor.x - pickerSize.width / 2))
+        let centerY = min(area.maxY - margin - pickerSize.height / 2,
+                          max(area.minY + 88 + pickerSize.height / 2, anchor.y))
+        var previewX = x + pickerSize.width + gap
+        if previewX + previewSize.width > maxX {
+            if x - gap - previewSize.width >= minX {
+                previewX = x - gap - previewSize.width
+            } else {
+                // Reserve both cards before the first preview appears. Hovering
+                // changes the image, never the picker position or the side.
+                x = max(minX, maxX - pickerSize.width - gap - previewSize.width)
+                previewX = x + pickerSize.width + gap
+            }
+        }
+        picker = CGRect(x: x, y: centerY - pickerSize.height / 2, width: pickerSize.width, height: pickerSize.height)
+        preview = CGRect(x: previewX, y: centerY - previewSize.height / 2, width: previewSize.width, height: previewSize.height)
+    }
+}
+
+@MainActor
+private struct LayoutWindowPreview: View {
+    @ObservedObject var controller: MultiWindowLayoutController
+    @ObservedObject var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let size: CGSize
+
+    var body: some View {
+        ZStack {
+            if let preview = controller.windowPreview {
+                Group {
+                    if let image = preview.image {
+                        Image(nsImage: image).resizable().scaledToFit()
+                            .accessibilityIdentifier("multiLayoutWindowPreviewImage")
+                    } else {
+                        VStack(spacing: 10) {
+                            if let icon = preview.window.icon {
+                                Image(nsImage: icon).resizable().scaledToFit().frame(width: 48, height: 48)
+                            }
+                            Text(settings.text("暂时无法预览")).font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id(preview.id)
+                .transition(.opacity)
+                .zIndex(1)
+            }
+        }
+        .padding(12)
+        .frame(width: size.width, height: size.height)
+        .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+        .opacity(controller.windowPreview == nil ? 0 : 1)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: controller.windowPreview?.id)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(controller.windowPreview.map { $0.window.applicationName + ": " + $0.window.title } ?? "")
+        .accessibilityHidden(controller.windowPreview == nil)
+        .accessibilityIdentifier("multiLayoutWindowPreview")
+    }
+}
+
 @MainActor
 private struct LayoutWindowPicker: View {
     @ObservedObject var controller: MultiWindowLayoutController
@@ -883,7 +1168,13 @@ private struct LayoutWindowPicker: View {
     @FocusState private var searching: Bool
     @State private var lastHoverLocation: CGPoint?
     @State private var pointerSelection: UUID?
+    @State private var hoveredWindowID: UUID?
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+
+    private var highlightedWindowID: UUID? {
+        guard controller.filteredWindows.indices.contains(controller.highlightedWindow) else { return nil }
+        return controller.filteredWindows[controller.highlightedWindow].id
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -901,6 +1192,7 @@ private struct LayoutWindowPicker: View {
                 Spacer()
                 Button { controller.reloadWindows() } label: { Image(systemName: "arrow.clockwise") }
                     .disabled(controller.isLoading).help(settings.text("刷新窗口"))
+                    .accessibilityIdentifier("multiLayoutRefreshWindows")
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -933,15 +1225,26 @@ private struct LayoutWindowPicker: View {
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).id(choice.id)
                                 .disabled(occupied != nil)
-                                .onContinuousHover { phase in
-                                    // Scrolling from the keyboard can move a new row under
-                                    // a stationary pointer; only actual movement takes over.
-                                    guard case .active = phase, let point = controller.pointer,
+                                .onContinuousHover(coordinateSpace: .global) { phase in
+                                    if case .ended = phase {
+                                        if hoveredWindowID == choice.id {
+                                            hoveredWindowID = nil
+                                            controller.cancelPendingWindowPreview(for: choice.id)
+                                        }
+                                        return
+                                    }
+                                    // Compare positions from this hover event in the window's
+                                    // coordinate space. The panel's separately sampled pointer
+                                    // can lag or already refer to a later mouse event.
+                                    // Keyboard scrolling keeps this position unchanged.
+                                    guard case .active(let point) = phase,
                                           point != lastHoverLocation else { return }
                                     lastHoverLocation = point
                                     guard occupied == nil else { return }
                                     pointerSelection = choice.id
+                                    hoveredWindowID = choice.id
                                     controller.highlightedWindow = index
+                                    controller.previewHighlightedWindow()
                                 }
                                 .accessibilityAddTraits(highlighted ? .isSelected : [])
                                 .accessibilityIdentifier("multiLayoutWindow-\(index)")
@@ -955,8 +1258,8 @@ private struct LayoutWindowPicker: View {
                     guard controller.filteredWindows.indices.contains(index) else { return }
                     let id = controller.filteredWindows[index].id
                     let fromPointer = pointerSelection == id
+                    if !fromPointer { hoveredWindowID = nil }
                     pointerSelection = nil
-                    lastHoverLocation = controller.pointer
                     // A hovered row is already visible. Moving it here would make
                     // the list jump as the pointer passes its partially visible edge.
                     if !fromPointer { proxy.scrollTo(id) }
@@ -965,9 +1268,10 @@ private struct LayoutWindowPicker: View {
         }
         .onAppear {
             searching = true
-            lastHoverLocation = controller.pointer
         }
+        .onChange(of: highlightedWindowID, initial: true) { _, _ in controller.previewHighlightedWindow() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("multiLayoutWindowPicker")
     }
 }
+

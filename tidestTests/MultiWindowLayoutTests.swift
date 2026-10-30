@@ -86,22 +86,58 @@ final class MultiWindowLayoutTests: XCTestCase {
         }
     }
 
-    func testSplittingAssignedRegionRequiresConfirmationAndPreservesOtherChoices() {
-        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
-        let ids = draft.root.leafIDs
-        let first = UUID(), second = UUID()
-        XCTAssertTrue(draft.assign(first, to: ids[0]))
-        XCTAssertTrue(draft.assign(second, to: ids[1]))
-        draft.selectedRegion = ids[0]
-        let before = draft
-        XCTAssertFalse(draft.split(.rows))
-        XCTAssertEqual(draft, before)
-        XCTAssertTrue(draft.split(.rows, confirmed: true))
-        XCTAssertNil(draft.assignments[ids[0]])
-        XCTAssertEqual(draft.assignments[ids[1]], second)
-        XCTAssertEqual(draft.assignments.count, 1)
-        draft.undo()
-        XCTAssertEqual(draft, before)
+    func testSplittingAddsAnEmptyRegionAtTheClickedEdgeAndKeepsAllWindows() throws {
+        let cases: [(LayoutSplitEdge, CGRect, CGRect)] = [
+            (.left, CGRect(x: 0, y: 0, width: 0.5, height: 1), CGRect(x: 0.5, y: 0, width: 0.5, height: 1)),
+            (.right, CGRect(x: 0.5, y: 0, width: 0.5, height: 1), CGRect(x: 0, y: 0, width: 0.5, height: 1)),
+            (.top, CGRect(x: 0, y: 0, width: 1, height: 0.5), CGRect(x: 0, y: 0.5, width: 1, height: 0.5)),
+            (.bottom, CGRect(x: 0, y: 0.5, width: 1, height: 0.5), CGRect(x: 0, y: 0, width: 1, height: 0.5))
+        ]
+        for (edge, emptyFrame, retainedFrame) in cases {
+            var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
+            let ids = draft.root.leafIDs
+            let first = UUID(), second = UUID()
+            XCTAssertTrue(draft.assign(first, to: ids[0]))
+            XCTAssertTrue(draft.assign(second, to: ids[1]))
+            draft.selectedRegion = ids[0]
+            let before = draft
+
+            XCTAssertTrue(draft.split(edge), edge.rawValue)
+            let children = try XCTUnwrap(draft.root.region(ids[0])).leaves
+            let empty = try XCTUnwrap(children.first { draft.assignments[$0.region.id] == nil })
+            let retained = try XCTUnwrap(children.first { draft.assignments[$0.region.id] == first })
+            XCTAssertEqual(empty.frame, emptyFrame, edge.rawValue)
+            XCTAssertEqual(retained.frame, retainedFrame, edge.rawValue)
+            XCTAssertEqual(draft.selectedRegion, retained.region.id)
+            XCTAssertNil(draft.assignments[ids[0]])
+            XCTAssertEqual(draft.assignments[ids[1]], second)
+            XCTAssertEqual(draft.assignments.count, 2)
+            XCTAssertFalse(draft.isComplete)
+            XCTAssertFalse(draft.assign(first, to: empty.region.id), "The retained window cannot be assigned twice")
+            assertTiling(draft.root)
+            draft.undo()
+            XCTAssertEqual(draft, before)
+        }
+    }
+
+    func testRepeatedSplitsKeepTheOriginalWindowAndRejectedSplitsLeaveTheDraftUntouched() throws {
+        var draft = MultiWindowLayoutDraft(root: .leaf(UUID()))
+        let window = UUID()
+        draft.assign(window, to: draft.root.id)
+        let original = draft
+        let edges: [LayoutSplitEdge] = [.left, .top, .right, .bottom]
+        for edge in edges {
+            XCTAssertTrue(draft.split(edge, minimumSize: CGSize(width: 0.2, height: 0.2)))
+            let selected = try XCTUnwrap(draft.selectedRegion)
+            XCTAssertEqual(draft.assignments, [selected: window])
+        }
+        let beforeRejectedSplit = draft
+        for edge in edges {
+            XCTAssertFalse(draft.split(edge, minimumSize: CGSize(width: 0.2, height: 0.2)))
+            XCTAssertEqual(draft, beforeRejectedSplit)
+        }
+        for _ in edges { draft.undo() }
+        XCTAssertEqual(draft, original)
     }
 
     func testMergeRequiresConfirmationAndClearsOnlySiblingChoices() {
@@ -125,7 +161,7 @@ final class MultiWindowLayoutTests: XCTestCase {
         let left = draft.root.leafIDs[0]
         let right = draft.root.leafIDs[1]
         draft.selectedRegion = right
-        XCTAssertTrue(draft.split(.rows))
+        XCTAssertTrue(draft.split(.bottom))
         draft.selectedRegion = left
         XCTAssertNil(draft.mergeRegion)
         XCTAssertFalse(draft.merge(confirmed: true))
@@ -255,12 +291,12 @@ final class MultiWindowLayoutTests: XCTestCase {
     func testSplitAndResizeUseActualAvailableSpaceInsteadOfACellCountLimit() {
         var draft = MultiWindowLayoutDraft(root: .leaf(UUID()))
         let minimum = CGSize(width: 0.18, height: 0.18)
-        XCTAssertTrue(draft.split(.columns, minimumSize: minimum))
-        XCTAssertTrue(draft.split(.columns, minimumSize: minimum))
+        XCTAssertTrue(draft.split(.right, minimumSize: minimum))
+        XCTAssertTrue(draft.split(.right, minimumSize: minimum))
         let before = draft
-        XCTAssertFalse(draft.split(.columns, minimumSize: minimum))
+        XCTAssertFalse(draft.split(.right, minimumSize: minimum))
         XCTAssertEqual(draft, before)
-        XCTAssertTrue(draft.split(.rows, minimumSize: minimum))
+        XCTAssertTrue(draft.split(.bottom, minimumSize: minimum))
         XCTAssertTrue(draft.root.fits(minimumSize: minimum))
         let rootBefore = draft.root
         draft.resize(draft.root.id, ratio: 0.1, minimumSize: minimum)
@@ -311,7 +347,7 @@ final class MultiWindowLayoutTests: XCTestCase {
             switch next(5) {
             case 0: _ = draft.merge(confirmed: true)
             case 1: _ = draft.removeRegion(draft.selectedRegion!)
-            default: _ = draft.split(next(2) == 0 ? .columns : .rows, confirmed: true, minimumSize: CGSize(width: 0.05, height: 0.05))
+            default: _ = draft.split([LayoutSplitEdge.left, .right, .top, .bottom][next(4)], minimumSize: CGSize(width: 0.05, height: 0.05))
             }
             let splits = draft.root.placements().filter { if case .split = $0.region { return true }; return false }
             if !splits.isEmpty {

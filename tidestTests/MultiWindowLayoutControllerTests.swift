@@ -34,7 +34,7 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertFalse(controller.undoAvailable)
     }
 
-    func testEditingAssignedStructureRequiresConfirmationAndCancelPreservesDraft() throws {
+    func testReplacingAssignedStructureRequiresConfirmationAndCancelPreservesDraft() throws {
         let controller = try makeController()
         defer { controller.dismiss() }
         controller.present(preview: true)
@@ -43,17 +43,50 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         controller.selectRegion(id)
         controller.chooseWindow(try XCTUnwrap(controller.filteredWindows.first?.id))
         let before = controller.draft
-        controller.request(.split(.rows))
+        let replacement = LayoutStartingPoint.grid.makeRegion()
+        controller.request(.replace(replacement))
         XCTAssertNotNil(controller.pendingEdit)
         XCTAssertEqual(controller.draft, before)
         controller.pendingEdit = nil
         XCTAssertEqual(controller.draft, before)
-        controller.request(.split(.rows))
+        controller.request(.replace(replacement))
         controller.confirmEdit()
-        XCTAssertEqual(controller.draft?.root.leafIDs.count, 3)
+        XCTAssertEqual(controller.draft?.root, replacement)
         XCTAssertTrue(controller.draft?.assignments.isEmpty == true)
         XCTAssertTrue(controller.outcomes.isEmpty)
         XCTAssertFalse(controller.undoAvailable)
+    }
+
+    func testSplittingAssignedRegionKeepsItsWindowWithoutConfirmationAndCanBeUndone() throws {
+        let cases: [(LayoutSplitEdge, Int)] = [(.left, 0), (.right, 1), (.top, 0), (.bottom, 1)]
+        for (edge, emptyIndex) in cases {
+            let controller = try makeController()
+            defer { controller.dismiss() }
+            controller.present(preview: true)
+            let ids = try XCTUnwrap(controller.draft?.root.leafIDs)
+            let choices = controller.windows
+            for (region, choice) in zip(ids, choices) {
+                controller.selectRegion(region)
+                controller.chooseWindow(choice.id)
+            }
+            controller.selectRegion(ids[0], openPicker: false)
+            let before = controller.draft
+            controller.splitRegion(ids[0], edge: edge)
+
+            XCTAssertNil(controller.pendingEdit, edge.rawValue)
+            XCTAssertFalse(controller.choosingWindow)
+            let children = try XCTUnwrap(controller.draft?.root.region(ids[0])?.leafIDs)
+            XCTAssertEqual(children.count, 2)
+            XCTAssertNil(controller.draft?.assignments[children[emptyIndex]])
+            XCTAssertEqual(controller.draft?.assignments[children[1 - emptyIndex]], choices[0].id)
+            XCTAssertEqual(controller.draft?.assignments[ids[1]], choices[1].id)
+            XCTAssertFalse(controller.canApply, "The newly added region still needs a window")
+            XCTAssertTrue(controller.outcomes.isEmpty)
+            XCTAssertFalse(controller.undoAvailable)
+            controller.undoDraft()
+            XCTAssertEqual(controller.draft, before)
+            XCTAssertTrue(controller.canApply)
+        }
     }
 
     func testAWindowOccupiedByAnotherRegionIsDisabledAndCannotBeChosen() throws {
@@ -105,7 +138,7 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         controller.selectRegion(leaves[0])
         let choice = try XCTUnwrap(controller.windows.first)
         controller.chooseWindow(choice.id)
-        controller.splitRegion(leaves[1], axis: .rows)
+        controller.splitRegion(leaves[1], edge: .bottom)
         XCTAssertNil(controller.pendingEdit)
         XCTAssertFalse(controller.choosingWindow)
         XCTAssertEqual(controller.draft?.assignments[leaves[0]], choice.id)

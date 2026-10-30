@@ -4,6 +4,52 @@ final class MultiWindowLayoutUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
+    func testWindowPreviewStaysAlignedWhileHoveringSearchingAndUsingArrowKeys() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-multi-layout", "--ui-preview-language=zh-Hans", "--ui-preview-thumbnails"]
+        app.launch()
+        app.activate()
+        let region = app.buttons["multiLayoutRegion-0"]
+        XCTAssertTrue(region.waitForExistence(timeout: 5))
+        region.click()
+        let picker = app.descendants(matching: .any)["multiLayoutWindowPicker"].firstMatch
+        let preview = app.descendants(matching: .any)["multiLayoutWindowPreview"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        XCTAssertEqual(preview.frame.width, 320, accuracy: 1)
+        XCTAssertEqual(preview.frame.height, 240, accuracy: 1)
+        XCTAssertEqual(preview.frame.midY, picker.frame.midY, accuracy: 1)
+        XCTAssertEqual(max(preview.frame.minX - picker.frame.maxX, picker.frame.minX - preview.frame.maxX), 28, accuracy: 1)
+        let original = preview.frame
+        app.buttons["multiLayoutWindow-1"].hover()
+        let second = NSPredicate(format: "label CONTAINS %@", "示例窗口 2")
+        expectation(for: second, evaluatedWith: preview)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(preview.frame, original)
+        keepScreenshot("window-preview-portrait", in: app)
+        app.typeKey(.downArrow, modifierFlags: [])
+        let third = NSPredicate(format: "label CONTAINS %@", "示例窗口 3")
+        expectation(for: third, evaluatedWith: preview)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(preview.frame, original)
+        keepScreenshot("window-preview-landscape", in: app)
+        app.buttons["multiLayoutRefreshWindows"].click()
+        XCTAssertTrue(preview.exists)
+        let search = app.textFields["multiLayoutWindowSearch"]
+        search.click()
+        search.typeText("示例窗口 8")
+        let eighth = NSPredicate(format: "label CONTAINS %@", "示例窗口 8")
+        expectation(for: eighth, evaluatedWith: preview)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(preview.frame, original)
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(preview.exists)
+        app.buttons["multiLayoutRegion-1"].click()
+        XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        XCTAssertLessThan(preview.frame.maxX, picker.frame.minX, "The preview should use the left side near the right screen edge")
+        keepScreenshot("window-preview-left-side", in: app)
+    }
+
+    @MainActor
     func testFourStartingCardsAndBlankEditor() {
         let app = launch()
         XCTAssertEqual(regions(app).count, 2)
@@ -98,6 +144,40 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertEqual(middle.maxX, right.minX, accuracy: 1)
         XCTAssertEqual(right.maxX, originalRight.maxX, accuracy: 1)
         XCTAssertFalse(app.textFields["multiLayoutWindowSearch"].exists)
+    }
+
+    @MainActor
+    func testClickedEdgeGetsAnEmptyRegionWhileTheOriginalWindowStaysOpposite() {
+        let app = launch()
+        assign(region: 0, windowIndex: 0, in: app)
+        assign(region: 1, windowIndex: 1, in: app)
+        let originalLeft = app.buttons["multiLayoutRegion-0"].frame
+        let originalRight = app.buttons["multiLayoutRegion-1"].frame
+        let cases = [("left", 1, 2), ("right", 2, 1), ("top", 1, 2), ("bottom", 2, 1)]
+        for (edge, emptyIndex, retainedIndex) in cases {
+            revealSplit(region: 1, edge: edge, in: app).click()
+            XCTAssertEqual(regions(app).count, 3)
+            XCTAssertEqual(app.alerts.count, 0)
+            XCTAssertFalse(app.buttons["清除并继续"].exists)
+            let empty = app.buttons["multiLayoutRegion-\(emptyIndex)"]
+            let retained = app.buttons["multiLayoutRegion-\(retainedIndex)"]
+            XCTAssertTrue(empty.label.contains("选择窗口"), edge)
+            XCTAssertTrue(retained.label.contains("示例窗口 2"), edge)
+            XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 1"))
+            XCTAssertEqual(app.buttons["multiLayoutRegion-0"].frame, originalLeft)
+            switch edge {
+            case "left": XCTAssertLessThan(empty.frame.midX, retained.frame.midX)
+            case "right": XCTAssertGreaterThan(empty.frame.midX, retained.frame.midX)
+            case "top": XCTAssertLessThan(empty.frame.midY, retained.frame.midY)
+            default: XCTAssertGreaterThan(empty.frame.midY, retained.frame.midY)
+            }
+            XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
+            moreAction("multiLayoutUndoDraft", in: app)
+            XCTAssertEqual(regions(app).count, 2)
+            XCTAssertEqual(app.buttons["multiLayoutRegion-1"].frame, originalRight)
+            XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))
+            XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+        }
     }
 
     @MainActor

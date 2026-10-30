@@ -6,8 +6,14 @@ import SwiftUI
 
 @MainActor
 final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDelegate {
+    struct WindowPreview: Identifiable {
+        let window: WindowItem
+        let image: NSImage?
+        var id: UUID { window.id }
+    }
+
     enum Edit {
-        case replace(LayoutRegion), split(LayoutSplitAxis), merge
+        case replace(LayoutRegion), split(LayoutSplitEdge), merge
     }
     @Published private(set) var isPresented = false
     @Published private(set) var isApplying = false
@@ -19,7 +25,12 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var displayInvalidated = false
     @Published private(set) var isLoading = false
     @Published var choosingWindow = false {
-        didSet { if !choosingWindow { panel?.makeFirstResponder(nil) } }
+        didSet {
+            if !choosingWindow {
+                panel?.makeFirstResponder(nil)
+                endWindowPreview()
+            }
+        }
     }
     @Published var confirming = false
     @Published var search = "" {
@@ -30,6 +41,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var outcomes: [LayoutWindowOutcome] = []
     @Published private(set) var messageKey: String?
     @Published private(set) var undoAvailable = false
+    @Published private(set) var windowPreview: WindowPreview?
     let templates: LayoutTemplateStore
     let settings: AppSettings
 
@@ -49,12 +61,21 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var isUndoResult = false
     private var dragSplit: UUID?
     private var previewFailureRemaining = false
+    private let captureThumbnail: @MainActor (WindowItem) async -> NSImage?
+    private var thumbnailTasks: [UUID: Task<NSImage?, Never>] = [:]
+    private var thumbnails: [UUID: NSImage] = [:]
+    private var attemptedThumbnails: Set<UUID> = []
+    private var thumbnailSession = UUID()
+    private var windowPreviewTask: Task<Void, Never>?
+    private var windowPreviewTarget: UUID?
 
-    init(settings: AppSettings? = nil, templates: LayoutTemplateStore? = nil, statistics: UsageStatisticsStore? = nil) {
+    init(settings: AppSettings? = nil, templates: LayoutTemplateStore? = nil, statistics: UsageStatisticsStore? = nil,
+         captureThumbnail: @escaping @MainActor (WindowItem) async -> NSImage? = { await WindowThumbnailCapture.capture($0) }) {
         let resolved = settings ?? .shared
         self.settings = resolved
         self.templates = templates ?? resolved.makeLayoutTemplateStore()
         self.statistics = statistics ?? .shared
+        self.captureThumbnail = captureThumbnail
         super.init()
     }
 
@@ -154,6 +175,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         isPresented = false
         pointer = nil
         choosingWindow = false
+        releaseWindowPreviews()
         confirming = false
         panel?.orderOut(nil)
         if let monitor { NSEvent.removeMonitor(monitor) }
@@ -208,12 +230,88 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         }
     }
 
+    func previewHighlightedWindow() {
+        guard choosingWindow, filteredWindows.indices.contains(highlightedWindow) else {
+            endWindowPreview()
+            return
+        }
+        let window = filteredWindows[highlightedWindow].window
+        guard assignedRegionNumber(for: window.id) == nil else { endWindowPreview(); return }
+        guard windowPreviewTarget != window.id else { return }
+        windowPreviewTask?.cancel()
+        windowPreviewTarget = window.id
+        let session = thumbnailSession
+        // A capture belongs to the layout session, not to the hover. Revisiting
+        // a window shares its in-flight task or its finished snapshot.
+        let capture: Task<NSImage?, Never>?
+        if attemptedThumbnails.contains(window.id) {
+            capture = nil
+        } else if let pending = thumbnailTasks[window.id] {
+            capture = pending
+        } else {
+            let takeSnapshot = captureThumbnail
+            let task = Task { [weak self] in
+                let image = window.allowsThumbnail ? await takeSnapshot(window) : nil
+                guard !Task.isCancelled, let self, thumbnailSession == session else { return nil as NSImage? }
+                thumbnails[window.id] = image
+                attemptedThumbnails.insert(window.id)
+                thumbnailTasks[window.id] = nil
+                return image
+            }
+            thumbnailTasks[window.id] = task
+            capture = task
+        }
+        let cached = thumbnails[window.id]
+        windowPreviewTask = Task { [weak self] in
+            // Only presentation waits; the screenshot above starts immediately.
+            do { try await Task.sleep(for: .milliseconds(120)) }
+            catch { return }
+            let image = if let capture { await capture.value } else { cached }
+            guard !Task.isCancelled, let self, thumbnailSession == session,
+                  choosingWindow, windowPreviewTarget == window.id,
+                  windows.contains(where: { $0.id == window.id }) else { return }
+            windowPreview = WindowPreview(window: window, image: image)
+        }
+    }
+
+    private func endWindowPreview() {
+        windowPreviewTask?.cancel()
+        windowPreviewTask = nil
+        windowPreviewTarget = nil
+        windowPreview = nil
+    }
+
+    func cancelPendingWindowPreview(for id: UUID) {
+        guard windowPreviewTarget == id else { return }
+        windowPreviewTask?.cancel()
+        windowPreviewTask = nil
+        windowPreviewTarget = nil
+        // Leaving the list keeps the last displayed image. An unfinished
+        // screenshot still completes into the session cache.
+    }
+
+    private func releaseWindowPreviews() {
+        endWindowPreview()
+        thumbnailSession = UUID()
+        let pending = thumbnailTasks
+        let images = thumbnails
+        thumbnailTasks = [:]
+        thumbnails = [:]
+        attemptedThumbnails = []
+        // Detach the old session immediately, then cancel its captures and
+        // release image storage without delaying the panel's dismissal.
+        Task.detached(priority: .utility) {
+            for task in pending.values { task.cancel() }
+            withExtendedLifetime(images) {}
+        }
+    }
+
     func request(_ edit: Edit) {
         guard !isApplying, outcomes.isEmpty else { return }
         let affected: [UUID]
         switch edit {
         case .replace: affected = draft?.root.leafIDs ?? []
-        case .split: affected = draft?.selectedRegion.map { [$0] } ?? []
+        case .split: affected = []
         case .merge: affected = draft?.mergeRegion?.leafIDs ?? []
         }
         if affected.contains(where: { draft?.assignments[$0] != nil }) { pendingEdit = edit }
@@ -235,8 +333,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             guard root.isValid else { return }
             if draft == nil { draft = MultiWindowLayoutDraft(root: root) }
             else { draft?.replace(with: root) }
-        case .split(let axis):
-            if draft?.split(axis, confirmed: true, minimumSize: minimumRegionSize) != true { messageKey = "区域过小，无法继续分割。" }
+        case .split(let edge):
+            if draft?.split(edge, minimumSize: minimumRegionSize) != true { messageKey = "区域过小，无法继续分割。" }
         case .merge: _ = draft?.merge(confirmed: true)
         }
     }
@@ -260,10 +358,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         confirming = false
     }
 
-    func splitRegion(_ id: UUID, axis: LayoutSplitAxis) {
+    func splitRegion(_ id: UUID, edge: LayoutSplitEdge) {
         selectRegion(id, openPicker: false)
         choosingWindow = false
-        request(.split(axis))
+        request(.split(edge))
     }
 
     func clearWindow() {
@@ -497,6 +595,27 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                                     title: "\(settings.text("示例窗口")) \(index)", frame: CGRect(x: 40, y: 60, width: 800, height: 600),
                                     minimized: false, captureID: nil, stackOrder: index)
             return LayoutWindowChoice(window: window, processLaunchDate: nil)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-preview-thumbnails") {
+            for (index, choice) in windows.enumerated() {
+                let size = index.isMultiple(of: 2) ? NSSize(width: 640, height: 480) : NSSize(width: 360, height: 640)
+                thumbnails[choice.id] = NSImage(size: size, flipped: false) { bounds in
+                    NSColor(calibratedHue: CGFloat(index) / 10, saturation: 0.32, brightness: 0.25, alpha: 1).setFill()
+                    bounds.fill()
+                    NSColor.white.withAlphaComponent(0.08).setFill()
+                    CGRect(x: 0, y: 0, width: bounds.width * 0.22, height: bounds.height - 40).fill()
+                    CGRect(x: 0, y: bounds.height - 40, width: bounds.width, height: 40).fill()
+                    for row in 0..<3 {
+                        NSColor.white.withAlphaComponent(0.12).setFill()
+                        NSBezierPath(roundedRect: CGRect(x: bounds.width * 0.28, y: bounds.height - 130 - CGFloat(row) * 74,
+                                                       width: bounds.width * 0.64, height: 54), xRadius: 8, yRadius: 8).fill()
+                    }
+                    (choice.window.title as NSString).draw(at: CGPoint(x: 20, y: bounds.height - 28),
+                        withAttributes: [.font: NSFont.systemFont(ofSize: 16, weight: .medium), .foregroundColor: NSColor.white])
+                    return true
+                }
+                attemptedThumbnails.insert(choice.id)
+            }
         }
         #endif
         isLoading = false
