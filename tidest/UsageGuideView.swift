@@ -58,7 +58,7 @@ private enum UsageTopic: String, CaseIterable {
         switch self {
         case .switching: "也可以用方向键或鼠标选择，按 Esc 取消。"
         case .layout: "按 1–9 选择位置，空格铺满屏幕，Esc 取消。"
-        case .multiLayout: "预览期间窗口保持原位。模板只保存结构；撤销上次应用可尽力还原窗口。"
+        case .multiLayout: "预览期间窗口保持原位。模板只保存结构；回退可尽力还原窗口。"
         case .docking: "移到屏幕边缘展开停靠栏。拖出项目可移除；点图钉可在窗口关闭后保留。"
         }
     }

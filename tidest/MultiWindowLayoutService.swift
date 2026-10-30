@@ -106,12 +106,56 @@ final class MultiWindowLayoutService {
 
     func stop() { catalog.stop() }
 
-    func reveal(_ outcomes: [LayoutWindowOutcome]) {
-        // Geometry changes do not raise covered windows. Use the same explicit
-        // activation as single-window positioning, once the batch has settled.
-        for outcome in outcomes where outcome.status.isSuccess {
-            _ = WindowCatalog.activateWindow(outcome.choice.window)
+    func reveal(_ outcomes: [LayoutWindowOutcome], topology: [LayoutDisplay]) async {
+        let choices = outcomes.filter { $0.status.isSuccess }.map(\.choice)
+        var activated: Set<pid_t> = []
+        // Activate each app once and let its activation finish. Interleaving
+        // app activation with window raising can cover earlier layout windows.
+        for choice in choices {
+            guard !Task.isCancelled, AXIsProcessTrusted(), LayoutDisplay.current() == topology else { return }
+            guard isAvailableForReveal(choice), activated.insert(choice.window.processID).inserted,
+                  let app = NSRunningApplication(processIdentifier: choice.window.processID) else { continue }
+            if Self.isSettable(choice.window.element, kAXMainAttribute) == true {
+                _ = AXUIElementSetAttributeValue(choice.window.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            }
+            let application = AXUIElementCreateApplication(choice.window.processID)
+            AXUIElementSetMessagingTimeout(application, 0.15)
+            // Accessibility activates the selected running process directly;
+            // opening its bundle would also send an unwanted reopen event.
+            let activation = AXUIElementSetAttributeValue(application, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            if activation == .success {
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: .seconds(1))
+                while !app.isActive, !app.isTerminated, clock.now < deadline {
+                    do { try await Task.sleep(for: .milliseconds(20)) }
+                    catch { return }
+                }
+            }
+            #if DEBUG
+            if activation != .success || !app.isActive {
+                Self.diagnostics.warning("Layout activation pid=\(choice.window.processID) ax=\(activation.rawValue) active=\(app.isActive)")
+            }
+            #endif
         }
+        // No more application switches after this point. Raise every selected
+        // window, including multiple windows belonging to the same application.
+        for choice in choices {
+            guard !Task.isCancelled, AXIsProcessTrusted(), LayoutDisplay.current() == topology else { return }
+            guard isAvailableForReveal(choice) else { continue }
+            let raised = AXUIElementPerformAction(choice.window.element, kAXRaiseAction as CFString)
+            if raised != .success {
+                #if DEBUG
+                Self.diagnostics.warning("Layout raise pid=\(choice.window.processID) ax=\(raised.rawValue)")
+                #endif
+            }
+        }
+    }
+
+    private func isAvailableForReveal(_ choice: LayoutWindowChoice) -> Bool {
+        guard identityMatches(choice), let number = choice.window.captureID,
+              Self.onScreenWindows()[number] == choice.window.processID,
+              Self.isOperable(choice.window), AXAccess.windowID(choice.window.element) == number else { return false }
+        return true
     }
 
     /// Preflight the entire batch before the first write; revalidate topology and identity for each subsequent write.

@@ -5,7 +5,6 @@ struct MultiWindowLayoutView: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
     @ObservedObject var templates: LayoutTemplateStore
-    @State private var showingLayouts = false
     @State private var namingTemplate = false
     @State private var renaming: LayoutTemplate?
     @State private var templateName = ""
@@ -22,17 +21,7 @@ struct MultiWindowLayoutView: View {
                 toolbar
                     .frame(width: max(0, area.width - 40), alignment: .leading)
                     .offset(x: area.minX + 20, y: area.minY + 16)
-                if controller.choosingWindow {
-                    let placement = pickerPlacement(in: area)
-                    LayoutWindowPicker(controller: controller, settings: settings)
-                        .padding(16)
-                        .frame(width: placement.picker.width, height: placement.picker.height)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
-                        .position(x: placement.picker.midX, y: placement.picker.midY)
-                    LayoutWindowPreview(controller: controller, settings: settings, size: placement.preview.size)
-                        .position(x: placement.preview.midX, y: placement.preview.midY)
-                }
+                LayoutWindowSelection(controller: controller, settings: settings, placement: pickerPlacement(in: area), area: area)
                 if !controller.outcomes.isEmpty {
                     results.padding(18)
                         .frame(width: min(390, area.width - 40), height: min(450, area.height - 120))
@@ -63,46 +52,32 @@ struct MultiWindowLayoutView: View {
         HStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "rectangle.split.2x1").foregroundStyle(.blue)
-                Text(settings.text("快速布局")).font(.system(size: 14, weight: .semibold))
+                Text(settings.text("快速布局")).font(.system(size: 14, weight: .semibold)).fixedSize()
                 Divider().frame(height: 18)
-                Button(settings.text("布局")) { showingLayouts.toggle() }
-                    .accessibilityIdentifier("multiLayoutLayouts")
-                    .popover(isPresented: $showingLayouts, arrowEdge: .bottom) {
-                        gallery.padding(20).frame(width: 480, height: 440)
-                    }
+                layoutChoices
                     .disabled(controller.isApplying || !controller.outcomes.isEmpty)
-                Menu {
-                    ForEach(controller.displays) { display in
-                        Button(display.name) { controller.selectDisplay(display.id) }
-                    }
-                } label: { Image(systemName: "display") }
-                .help(controller.target?.name ?? settings.text("目标显示器"))
-                .accessibilityIdentifier("multiLayoutDisplay")
-                .disabled(controller.isApplying)
-                Menu {
-                    Button(settings.text("撤销草稿编辑")) { controller.undoDraft() }
-                        .disabled(controller.draft?.canUndo != true || !controller.outcomes.isEmpty)
-                        .accessibilityIdentifier("multiLayoutUndoDraft")
-                    Button(settings.text("合并区域")) { controller.request(.merge) }
-                        .disabled(controller.draft?.mergeRegion == nil || !controller.outcomes.isEmpty)
-                        .accessibilityIdentifier("multiLayoutMerge")
-                    Button(settings.text("清除窗口选择")) { controller.clearWindow() }
-                        .disabled(controller.draft?.selectedRegion.flatMap { controller.draft?.assignments[$0] } == nil || !controller.outcomes.isEmpty)
-                    Divider()
-                    Button(settings.text("保存为模板")) { beginNaming(nil) }
-                        .disabled(templates.errorKey != nil || !controller.outcomes.isEmpty)
-                        .accessibilityIdentifier("multiLayoutSaveTemplate")
-                    Button(settings.text("撤销上次应用")) { controller.undoApplication() }
-                        .disabled(!controller.undoAvailable)
-                        .accessibilityIdentifier("multiLayoutUndoApplication")
-                } label: { Image(systemName: "ellipsis") }
-                .accessibilityLabel(settings.text("更多操作"))
-                .accessibilityIdentifier("multiLayoutMore")
-                .disabled(controller.isApplying)
             }
             .frame(height: 30)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            HStack(spacing: 4) {
+                toolbarButton("重置", icon: "arrow.clockwise", identifier: "multiLayoutReset") {
+                    controller.resetDraft()
+                }
+                .disabled(!controller.canResetDraft || !controller.outcomes.isEmpty)
+                toolbarButton("保存为模板", icon: "square.and.arrow.down", identifier: "multiLayoutSaveTemplate") {
+                    beginNaming(nil)
+                }
+                .disabled(controller.draft == nil || templates.errorKey != nil || !controller.outcomes.isEmpty)
+                toolbarButton("回退", icon: "arrow.uturn.backward", identifier: "multiLayoutUndoApplication") {
+                    controller.undoApplication()
+                }
+                .disabled(!controller.undoAvailable)
+            }
+            .padding(6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .disabled(controller.isApplying)
+            .fixedSize()
             HStack(spacing: 4) {
                 Button(settings.text("取消")) { controller.dismiss() }
                     .buttonStyle(LayoutToolbarActionStyle(primary: false))
@@ -122,9 +97,18 @@ struct MultiWindowLayoutView: View {
             }
             .padding(6)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .fixedSize()
         }
-        .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.borderless)
+    }
+
+    private func toolbarButton(_ title: String, icon: String, identifier: String,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon) }
+            .buttonStyle(LayoutToolbarIconStyle())
+            .help(settings.text(title))
+            .accessibilityLabel(settings.text(title))
+            .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder private var feedback: some View {
@@ -134,19 +118,18 @@ struct MultiWindowLayoutView: View {
                 HStack {
                     Text(settings.text("显示器配置已变化，请重新确认目标显示器。"))
                     Button(settings.text("重新确认显示器")) {
-                        if let id = controller.target?.id { controller.selectDisplay(id) }
+                        controller.reconfirmDisplay()
                     }
                 }.foregroundStyle(.orange)
             } else if let message = controller.messageKey ?? templates.errorKey {
                 Text(settings.text(message)).foregroundStyle(.orange)
                     .accessibilityIdentifier("multiLayoutMessage")
             } else if controller.hasSmallRegions {
-                Text(settings.text("区域过小，请合并区域或选择更大的显示器。" )).foregroundStyle(.orange)
+                Text(settings.text("格子太小，请删除格子或拖动分隔线调整大小。" )).foregroundStyle(.orange)
             } else if !controller.sizeConflicts.isEmpty {
                 Text(settings.text("窗口尺寸受限，请调整区域后重试。")).foregroundStyle(.orange)
-            } else if controller.confirming {
-                Text(settings.text("按 Enter 应用布局，按 Esc 返回编辑。"))
-                    .accessibilityIdentifier("multiLayoutConfirming")
+            } else if controller.canApply && !controller.choosingWindow {
+                Text(settings.text("按 Enter 应用布局，按 Esc 取消。"))
             } else if !controller.choosingWindow && controller.outcomes.isEmpty {
                 Text(settings.text("点击格子选窗口，拖动分隔线调整大小。"))
             }
@@ -165,62 +148,56 @@ struct MultiWindowLayoutView: View {
         return LayoutWindowPickerPlacement(area: area, anchor: CGPoint(x: x, y: y))
     }
 
-    private func chooseLayout(_ root: LayoutRegion) {
-        showingLayouts = false
-        controller.request(.replace(root))
-    }
-
-    private var gallery: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(settings.text("选择布局起点")).font(.headline)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 14) {
-                    ForEach(LayoutStartingPoint.allCases) { start in
-                        templateCard(title: settings.text(start.titleKey), root: start.makeRegion()) {
-                            chooseLayout(start.makeRegion())
-                        }
+    private var layoutChoices: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 4) {
+                layoutButton(title: settings.text("空白布局"), root: .leaf(UUID()))
+                    .accessibilityIdentifier("multiLayoutBlank")
+                ForEach(LayoutStartingPoint.allCases) { start in
+                    layoutButton(title: settings.text(start.titleKey), root: start.makeRegion())
                         .accessibilityIdentifier("multiLayoutStart-\(start.rawValue)")
-                    }
                 }
-                Button { chooseLayout(.leaf(UUID())) } label: {
-                    Label(settings.text("空白布局"), systemImage: "plus.rectangle")
-                }.accessibilityIdentifier("multiLayoutBlank")
                 if !templates.templates.isEmpty {
-                    Text(settings.text("我的模板")).font(.headline)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 14) {
-                        ForEach(templates.templates) { template in
-                            templateCard(title: template.name, root: template.root) { chooseLayout(template.root) }
-                                .contextMenu {
-                                    Button(settings.text("重命名")) { beginNaming(template) }
-                                    Button(settings.text("删除模板"), role: .destructive) { templates.delete(template.id) }
-                                }
-                        }
+                    Divider().frame(height: 18).padding(.horizontal, 4)
+                    ForEach(templates.templates) { template in
+                        layoutButton(title: template.name, root: template.root)
+                            .accessibilityIdentifier("multiLayoutTemplate-\(template.id)")
+                            .contextMenu {
+                                Button(settings.text("重命名")) { beginNaming(template) }
+                                Button(settings.text("删除模板"), role: .destructive) { templates.delete(template.id) }
+                            }
                     }
                 }
-                Text(settings.text("可继续左右或上下分割、拖动分隔线；尺寸限制由当前空间决定。"))
-                    .font(.callout).foregroundStyle(.secondary)
-            }.padding(2)
+            }
         }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: CGFloat(5 + templates.templates.count) * 38 - 4 + (templates.templates.isEmpty ? 0 : 13))
+        .frame(height: 30)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(settings.text("布局"))
+        .accessibilityIdentifier("multiLayoutLayouts")
     }
 
-    private func templateCard(title: String, root: LayoutRegion, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                GeometryReader { geometry in
-                    ZStack(alignment: .topLeading) {
-                        ForEach(root.leaves, id: \.region.id) { leaf in
-                            RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.16))
-                                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor.opacity(0.4)))
-                                .frame(width: max(0, leaf.frame.width * geometry.size.width - 4),
-                                       height: max(0, leaf.frame.height * geometry.size.height - 4))
-                                .offset(x: leaf.frame.minX * geometry.size.width + 2, y: leaf.frame.minY * geometry.size.height + 2)
-                        }
+    private func layoutButton(title: String, root: LayoutRegion) -> some View {
+        let selected = controller.draft?.root.leaves.map(\.frame) == root.leaves.map(\.frame)
+        return Button { controller.request(.replace(root)) } label: {
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    ForEach(root.leaves, id: \.region.id) { leaf in
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(.primary.opacity(0.18))
+                            .overlay(RoundedRectangle(cornerRadius: 1.5).strokeBorder(.primary.opacity(0.85), lineWidth: 1))
+                            .frame(width: max(0, leaf.frame.width * geometry.size.width - 2),
+                                   height: max(0, leaf.frame.height * geometry.size.height - 2))
+                            .offset(x: leaf.frame.minX * geometry.size.width + 1, y: leaf.frame.minY * geometry.size.height + 1)
                     }
-                }.frame(height: 92)
-                Text(title).font(.callout.weight(.medium)).lineLimit(2)
-            }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 12))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+                }
+            }.frame(width: 26, height: 20)
+        }
+        .buttonStyle(LayoutToolbarIconStyle(selected: selected))
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var results: some View {
@@ -272,6 +249,34 @@ struct MultiWindowLayoutView: View {
                 }.accessibilityIdentifier("multiLayoutConfirmSaveTemplate")
             }
         }.padding(24).frame(width: 400)
+    }
+}
+
+@MainActor
+private struct LayoutToolbarIconStyle: ButtonStyle {
+    var selected = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(selected ? Color.accentColor : .white)
+            .frame(width: 34, height: 30)
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(selected ? Color.accentColor.opacity(0.2) : .clear)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(.white.opacity(isEnabled ? (configuration.isPressed ? 0.16 : (hovered ? 0.08 : 0)) : 0))
+                    }
+            }
+            .opacity(isEnabled ? 0.95 : 0.35)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
@@ -472,7 +477,11 @@ private struct LayoutDraftCanvas: View {
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
         let compact = height < 240 || width < 240
+        let cardWidth = min(300, max(0, width - 80))
+        let cardHeight: CGFloat = compact ? 32 : 160
         let canDelete = (controller.draft?.root.leafIDs.count ?? 0) > 1
+        let canClear = controller.draft?.assignments[leaf.region.id] != nil
+        let controlsWidth: CGFloat = CGFloat((canDelete ? 1 : 0) + (canClear ? 1 : 0)) * 28
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
                 Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
@@ -490,17 +499,20 @@ private struct LayoutDraftCanvas: View {
                             Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
                                 .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1).truncationMode(.tail)
-                                .padding(.trailing, canDelete ? 24 : 0)
+                                .padding(.trailing, max(0, controlsWidth - 4))
                                 .padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 32)
                         } else {
-                            VStack(spacing: 8) {
+                            VStack(spacing: 6) {
                                 Text(settings.text("区域 %@", String(index + 1)))
                                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.7)).padding(.horizontal, 24)
+                                    .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.75)).padding(.horizontal, 24)
                                 if let choice {
                                     if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36) }
                                     Text(choice.window.applicationName).font(.system(size: 16, weight: .semibold))
+                                        .lineLimit(1).truncationMode(.tail)
                                     Text(choice.window.title).font(.system(size: 12)).lineLimit(2)
+                                        .truncationMode(.tail)
+                                        .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.8))
                                 } else {
                                     Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
                                     Text(settings.text(controller.draft?.assignments[leaf.region.id] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
@@ -510,31 +522,51 @@ private struct LayoutDraftCanvas: View {
                                     Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
                                 }
                             }
-                            .padding(12).frame(maxWidth: .infinity)
+                            .padding(10).frame(maxWidth: .infinity)
                         }
                     }
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: compact ? 8 : 14))
+                    .frame(width: cardWidth, height: cardHeight)
+                    .foregroundStyle(.white)
+                    .background {
+                        let shape = RoundedRectangle(cornerRadius: compact ? 8 : 14)
+                        shape.fill(.regularMaterial)
+                        shape.fill(Color(red: 0.24, green: 0.34, blue: 0.48).opacity(hovered ? 0.98 : 0))
+                        shape.strokeBorder(hovered ? highlight.opacity(0.85) : .white.opacity(0.16), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(hovered ? 0.3 : 0.12), radius: 16, y: 5)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: hovered)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focusable(false).accessibilityHidden(true)
-                if canDelete {
-                    Button { controller.deleteRegion(leaf.region.id) } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 28, height: 28).contentShape(Rectangle())
+                HStack(spacing: 0) {
+                    if canClear {
+                        Button { controller.clearWindow(in: leaf.region.id) } label: {
+                            Image(systemName: "xmark.circle")
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                        }
+                        .help(settings.text("清除窗口选择"))
+                        .accessibilityLabel(settings.text("清除窗口选择"))
+                        .accessibilityIdentifier("multiLayoutClear-\(index)")
                     }
-                    .buttonStyle(.plain)
-                    .help(settings.text("删除格子"))
-                    .accessibilityLabel(settings.text("删除格子"))
-                    .accessibilityIdentifier("multiLayoutDelete-\(index)")
-                    .padding(compact ? 2 : 5)
-                    .opacity(showingControls ? 1 : 0)
-                    .allowsHitTesting(showingControls)
-                    .accessibilityHidden(!showingControls)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
+                    if canDelete {
+                        Button { controller.deleteRegion(leaf.region.id) } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                        }
+                        .help(settings.text("删除格子"))
+                        .accessibilityLabel(settings.text("删除格子"))
+                        .accessibilityIdentifier("multiLayoutDelete-\(index)")
+                    }
                 }
+                .font(.system(size: 13, weight: .medium))
+                .buttonStyle(.plain)
+                .padding(compact ? 2 : 5)
+                .opacity(showingControls ? 1 : 0)
+                .allowsHitTesting(showingControls)
+                .accessibilityHidden(!showingControls)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
             }
-            .frame(width: min(300, max(0, width - 80)))
+            .frame(width: cardWidth, height: cardHeight)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("multiLayoutCard-\(index)")
             .opacity(revealing ? 0 : 1)
@@ -1132,43 +1164,166 @@ nonisolated struct LayoutWindowPickerPlacement {
 }
 
 @MainActor
-private struct LayoutWindowPreview: View {
+private struct LayoutWindowSelection: View {
     @ObservedObject var controller: MultiWindowLayoutController
+    @ObservedObject var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let placement: LayoutWindowPickerPlacement
+    let area: CGRect
+    @State private var activePlacement: LayoutWindowPickerPlacement?
+    @State private var pickerVisible = false
+    @State private var pickerSettled = false
+    @State private var displayedPreview: MultiWindowLayoutController.WindowPreview?
+    @State private var selectedRowFrames: [UUID: CGRect] = [:]
+    @State private var previewCenterY: CGFloat?
+    @State private var animationID = UUID()
+
+    private var highlightedWindowID: UUID? {
+        guard controller.filteredWindows.indices.contains(controller.highlightedWindow) else { return nil }
+        return controller.filteredWindows[controller.highlightedWindow].id
+    }
+
+    var body: some View {
+        let frames = activePlacement ?? placement
+        let previewOffset: CGFloat = frames.preview.midX > frames.picker.midX ? -18 : 18
+        ZStack(alignment: .topLeading) {
+            if let preview = displayedPreview, let centerY = previewCenterY {
+                LayoutWindowPreview(preview: preview, settings: settings, size: frames.preview.size)
+                    .position(x: frames.preview.midX, y: centerY)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: centerY)
+                    .transition(.offset(x: reduceMotion ? 0 : previewOffset).combined(with: .opacity))
+                    .zIndex(0)
+            }
+            // Keep the picker laid out before opening. Its first fade no longer
+            // competes with insertion or starts an animation from onAppear.
+            LayoutWindowPicker(controller: controller, settings: settings, isReady: pickerSettled)
+                .disabled(!controller.choosingWindow)
+                .padding(16)
+                .frame(width: frames.picker.width, height: frames.picker.height)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+                .position(x: frames.picker.midX, y: frames.picker.midY)
+                .animation(nil, value: frames.picker)
+                .opacity(pickerVisible ? 1 : 0)
+                .zIndex(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .coordinateSpace(name: "layoutWindowSelection")
+        .allowsHitTesting(controller.choosingWindow && pickerSettled)
+        .accessibilityHidden(!controller.choosingWindow)
+        .onPreferenceChange(LayoutWindowRowFramesKey.self) { frames in
+            MainActor.assumeIsolated {
+                selectedRowFrames = frames
+                updatePreviewPosition()
+                updatePreview()
+            }
+        }
+        .onChange(of: controller.choosingWindow, initial: true) { _, presented in
+            setPresented(presented)
+        }
+        .onChange(of: highlightedWindowID) { _, _ in
+            updatePreviewPosition()
+            updatePreview()
+        }
+        .onChange(of: controller.windowPreview?.id) { _, _ in updatePreview() }
+        .onChange(of: reduceMotion) { _, _ in setPresented(controller.choosingWindow) }
+    }
+
+    private func setPresented(_ presented: Bool) {
+        let id = UUID()
+        animationID = id
+        pickerSettled = false
+        if presented {
+            // Keep one position through opening, closing and an interrupted close.
+            if activePlacement == nil { activePlacement = placement }
+            updatePreviewPosition()
+            controller.previewHighlightedWindow()
+        }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: presented ? 0.22 : 0.18), completionCriteria: .removed) {
+            pickerVisible = presented
+            if !presented { displayedPreview = nil }
+        } completion: {
+            guard animationID == id, controller.choosingWindow == presented else { return }
+            if presented {
+                pickerSettled = true
+                // Capture can finish early; presentation waits for the actual animation.
+                updatePreviewPosition()
+                updatePreview()
+            } else {
+                activePlacement = nil
+                previewCenterY = nil
+            }
+        }
+    }
+
+    private func updatePreviewPosition() {
+        guard controller.choosingWindow, let frames = activePlacement,
+              let id = highlightedWindowID, let row = selectedRowFrames[id] else { return }
+        let halfHeight = frames.preview.height / 2
+        previewCenterY = min(area.maxY - 16 - halfHeight,
+                             max(area.minY + 16 + halfHeight, row.midY))
+    }
+
+    private func updatePreview() {
+        guard controller.choosingWindow, pickerSettled else { return }
+        if let preview = controller.windowPreview {
+            // Never insert an image at a provisional position or for an older row.
+            guard preview.id == highlightedWindowID, selectedRowFrames[preview.id] != nil,
+                  previewCenterY != nil, displayedPreview?.id != preview.id else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                displayedPreview = preview
+            }
+        } else {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                // The removal transition retains this snapshot until fade-out ends.
+                displayedPreview = nil
+            }
+        }
+    }
+}
+
+nonisolated private struct LayoutWindowRowFramesKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] { [:] }
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+@MainActor
+private struct LayoutWindowPreview: View {
+    let preview: MultiWindowLayoutController.WindowPreview
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGSize
 
     var body: some View {
         ZStack {
-            if let preview = controller.windowPreview {
-                Group {
-                    if let image = preview.image {
-                        Image(nsImage: image).resizable().scaledToFit()
-                            .accessibilityIdentifier("multiLayoutWindowPreviewImage")
-                    } else {
-                        VStack(spacing: 10) {
-                            if let icon = preview.window.icon {
-                                Image(nsImage: icon).resizable().scaledToFit().frame(width: 48, height: 48)
-                            }
-                            Text(settings.text("暂时无法预览")).font(.callout).foregroundStyle(.secondary)
+            Group {
+                if let image = preview.image {
+                    Image(nsImage: image).resizable().scaledToFit()
+                        .accessibilityIdentifier("multiLayoutWindowPreviewImage")
+                } else {
+                    VStack(spacing: 10) {
+                        if let icon = preview.window.icon {
+                            Image(nsImage: icon).resizable().scaledToFit().frame(width: 48, height: 48)
                         }
+                        Text(settings.text("暂时无法预览")).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id(preview.id)
-                .transition(.opacity)
-                .zIndex(1)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(preview.id)
+            .transition(.opacity)
+            .zIndex(1)
         }
         .padding(12)
         .frame(width: size.width, height: size.height)
         .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
-        .opacity(controller.windowPreview == nil ? 0 : 1)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: controller.windowPreview?.id)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: preview.id)
         .allowsHitTesting(false)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(controller.windowPreview.map { $0.window.applicationName + ": " + $0.window.title } ?? "")
-        .accessibilityHidden(controller.windowPreview == nil)
+        .accessibilityLabel(preview.window.applicationName + ": " + preview.window.title)
         .accessibilityIdentifier("multiLayoutWindowPreview")
     }
 }
@@ -1177,8 +1332,10 @@ private struct LayoutWindowPreview: View {
 private struct LayoutWindowPicker: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
+    let isReady: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searching: Bool
+    @State private var openingPointerLocation: CGPoint?
     @State private var lastHoverLocation: CGPoint?
     @State private var pointerSelection: UUID?
     @State private var hoveredWindowID: UUID?
@@ -1238,6 +1395,14 @@ private struct LayoutWindowPicker: View {
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).id(choice.id)
                                 .disabled(occupied != nil)
+                                .background {
+                                    if highlighted {
+                                        GeometryReader { geometry in
+                                            Color.clear.preference(key: LayoutWindowRowFramesKey.self,
+                                                                   value: [choice.id: geometry.frame(in: .named("layoutWindowSelection"))])
+                                        }
+                                    }
+                                }
                                 .onContinuousHover(coordinateSpace: .global) { phase in
                                     if case .ended = phase {
                                         if hoveredWindowID == choice.id {
@@ -1250,9 +1415,15 @@ private struct LayoutWindowPicker: View {
                                     // coordinate space. The panel's separately sampled pointer
                                     // can lag or already refer to a later mouse event.
                                     // Keyboard scrolling keeps this position unchanged.
-                                    guard case .active(let point) = phase,
+                                    guard isReady, case .active(let point) = phase,
                                           point != lastHoverLocation else { return }
                                     lastHoverLocation = point
+                                    if let openingPointerLocation {
+                                        // Revealing the picker under a stationary cursor
+                                        // must not replace the initial keyboard selection.
+                                        guard NSEvent.mouseLocation != openingPointerLocation else { return }
+                                        self.openingPointerLocation = nil
+                                    }
                                     guard occupied == nil else { return }
                                     pointerSelection = choice.id
                                     hoveredWindowID = choice.id
@@ -1277,10 +1448,22 @@ private struct LayoutWindowPicker: View {
                     // the list jump as the pointer passes its partially visible edge.
                     if !fromPointer { proxy.scrollTo(id) }
                 }
+                .onChange(of: controller.choosingWindow) { _, presented in
+                    openingPointerLocation = presented ? NSEvent.mouseLocation : nil
+                    guard presented, let id = highlightedWindowID else { return }
+                    // The picker stays mounted between openings; reset its scroll
+                    // position while it is still fading in, before showing a preview.
+                    proxy.scrollTo(id)
+                }
             }
         }
-        .onAppear {
-            searching = true
+        .onChange(of: isReady, initial: true) { _, ready in
+            searching = ready
+            if !ready {
+                lastHoverLocation = nil
+                pointerSelection = nil
+                hoveredWindowID = nil
+            }
         }
         .onChange(of: highlightedWindowID, initial: true) { _, _ in controller.previewHighlightedWindow() }
         .accessibilityElement(children: .contain)

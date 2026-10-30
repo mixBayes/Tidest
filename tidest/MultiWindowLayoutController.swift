@@ -32,7 +32,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             }
         }
     }
-    @Published var confirming = false
     @Published var search = "" {
         didSet { highlightedWindow = filteredWindows.firstIndex { assignedRegionNumber(for: $0.id) == nil } ?? 0 }
     }
@@ -114,8 +113,17 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     var hasSmallRegions: Bool { draft.map { !$0.root.fits(minimumSize: minimumRegionSize) } ?? false }
 
+    var canResetDraft: Bool {
+        guard let draft else { return false }
+        return !draft.assignments.isEmpty ||
+            draft.root.leaves.map(\.frame) != LayoutStartingPoint.columns.makeRegion().leaves.map(\.frame)
+    }
+
     func present(preview: Bool = false) {
-        if isPresented { panel?.makeKeyAndOrderFront(nil); return }
+        if isPresented {
+            if !isApplying { panel?.makeKeyAndOrderFront(nil) }
+            return
+        }
         previewMode = preview
         #if DEBUG
         previewFailureRemaining = preview && ProcessInfo.processInfo.arguments.contains("--ui-preview-multi-layout-partial")
@@ -130,7 +138,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         outcomes = []
         messageKey = nil
         choosingWindow = false
-        confirming = false
         pendingEdit = nil
         dragSplit = nil
         undoHistory.beginDraft()
@@ -176,7 +183,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         pointer = nil
         choosingWindow = false
         releaseWindowPreviews()
-        confirming = false
         panel?.orderOut(nil)
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
@@ -196,16 +202,15 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     func windowShouldClose(_ sender: NSWindow) -> Bool { !isApplying }
     func windowWillClose(_ notification: Notification) { dismiss() }
 
-    func selectDisplay(_ id: UInt32) {
+    func reconfirmDisplay() {
         guard !isApplying else { return }
         displays = LayoutDisplay.current()
-        guard let display = displays.first(where: { $0.id == id }) else { return }
+        guard let display = displays.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) else { return }
         target = display
         panel?.setFrame(display.frame, display: true)
         updatePointer()
         topology = displays
         displayInvalidated = false
-        confirming = false
         outcomes = []
         messageKey = nil
         undoHistory.beginDraft()
@@ -326,7 +331,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     private func commit(_ edit: Edit) {
         choosingWindow = false
-        confirming = false
         messageKey = nil
         switch edit {
         case .replace(let root):
@@ -342,7 +346,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     func selectRegion(_ id: UUID, openPicker: Bool = true) {
         guard !isApplying, outcomes.isEmpty else { return }
         draft?.selectedRegion = id
-        confirming = false
         if openPicker {
             search = ""
             highlightedWindow = filteredWindows.firstIndex { assignedRegionNumber(for: $0.id) == nil } ?? 0
@@ -355,7 +358,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
               filteredWindows.contains(where: { $0.id == id }), assignedRegionNumber(for: id) == nil else { return }
         _ = draft?.assign(id, to: region)
         choosingWindow = false
-        confirming = false
     }
 
     func splitRegion(_ id: UUID, edge: LayoutSplitEdge) {
@@ -364,16 +366,24 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         request(.split(edge))
     }
 
-    func clearWindow() {
-        guard !isApplying, let region = draft?.selectedRegion else { return }
+    func clearWindow(in region: UUID) {
+        guard !isApplying, outcomes.isEmpty, draft?.assignments[region] != nil else { return }
         _ = draft?.assign(nil, to: region)
-        confirming = false
+        choosingWindow = false
+    }
+
+    func resetDraft() {
+        guard !isApplying, outcomes.isEmpty else { return }
+        draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
+        choosingWindow = false
+        pendingEdit = nil
+        messageKey = nil
+        dragSplit = nil
     }
 
     func deleteRegion(_ id: UUID) {
         guard !isApplying, outcomes.isEmpty, draft?.removeRegion(id) == true else { return }
         choosingWindow = false
-        confirming = false
         messageKey = nil
         dragSplit = nil
     }
@@ -382,7 +392,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         guard !isApplying, outcomes.isEmpty else { return }
         if dragSplit != split { draft?.checkpoint(); dragSplit = split }
         draft?.resize(split, ratio: ratio, minimumSize: minimumRegionSize)
-        confirming = false
         if ended { dragSplit = nil }
     }
 
@@ -390,14 +399,12 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         guard !isApplying, outcomes.isEmpty else { return }
         draft?.undo()
         choosingWindow = false
-        confirming = false
     }
 
     func continueEditing() {
         guard !isApplying else { return }
         outcomes = []
         messageKey = nil
-        confirming = false
         undoHistory.beginDraft()
         reloadWindows()
     }
@@ -420,7 +427,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         let previous = outcomes
         let expectedTopology = topology
         isApplying = true
-        confirming = false
         choosingWindow = false
         isUndoResult = false
         operation = Task { [weak self] in
@@ -442,10 +448,18 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                 let replacements = Dictionary(uniqueKeysWithValues: result.outcomes.map { ($0.id, $0) })
                 outcomes = previous.map { replacements[$0.id] ?? $0 }
             } else { outcomes = result.outcomes }
-            if !previewMode { service.reveal(result.outcomes) }
-            if !previewMode, !result.outcomes.isEmpty, outcomes.allSatisfy({ $0.status.isSuccess }) { statistics.record() }
-            finishOperation()
-            if !outcomes.isEmpty, outcomes.allSatisfy({ $0.status.isSuccess }) { dismiss() }
+            let completed = !outcomes.isEmpty && outcomes.allSatisfy { $0.status.isSuccess }
+            if completed {
+                // Release the layout panel before handing the arranged windows
+                // to their apps. A retry must reveal the whole completed layout.
+                panel?.orderOut(nil)
+                if !previewMode {
+                    await service.reveal(outcomes, topology: expectedTopology)
+                    statistics.record()
+                }
+            }
+            finishOperation(showPanel: !completed)
+            if completed { dismiss() }
         }
     }
 
@@ -469,7 +483,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         let expectedTopology = undoTopology
         isApplying = true
         choosingWindow = false
-        confirming = false
         isUndoResult = true
         operation = Task { [weak self] in
             guard let self else { return }
@@ -484,11 +497,11 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     var canRetry: Bool { !isUndoResult && outcomes.contains { !$0.status.isSuccess } && !displayInvalidated }
 
-    private func finishOperation() {
+    private func finishOperation(showPanel: Bool = true) {
         isApplying = false
         operation = nil
         if !previewMode, LayoutDisplay.current() != topology { displayInvalidated = true }
-        panel?.makeKeyAndOrderFront(nil)
+        if showPanel { panel?.makeKeyAndOrderFront(nil) }
     }
 
     private func installMonitors() {
@@ -509,7 +522,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                 guard let self, self.isPresented else { return }
                 self.displays = LayoutDisplay.current()
                 self.displayInvalidated = self.displays != self.topology
-                self.confirming = false
                 if self.displayInvalidated { self.operation?.cancel() }
             }
         }
@@ -549,7 +561,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         if event.keyCode == kVK_Escape {
             if isApplying { return true }
             if choosingWindow { choosingWindow = false }
-            else if confirming { confirming = false }
             else { dismiss() }
             return true
         }
@@ -578,8 +589,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         if enter {
             guard !event.isARepeat, !enterHeld else { return true }
             enterHeld = true
-            if confirming { apply() }
-            else if canApply { confirming = true }
+            if canApply { apply() }
             return true
         }
         return false

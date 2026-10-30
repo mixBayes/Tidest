@@ -50,12 +50,14 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
-    func testFourStartingCardsAndBlankEditor() {
+    func testInlineStartingLayoutsAndBlankEditor() {
         let app = launch()
         XCTAssertEqual(regions(app).count, 2)
-        app.buttons["multiLayoutLayouts"].click()
         let starts = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "multiLayoutStart-"))
         XCTAssertEqual(starts.count, 4)
+        XCTAssertFalse(app.menuButtons["multiLayoutDisplay"].exists)
+        XCTAssertFalse(app.menuButtons["multiLayoutMore"].exists)
+        XCTAssertFalse(app.buttons["multiLayoutReset"].isEnabled)
         XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
         app.buttons["multiLayoutBlank"].click()
         XCTAssertEqual(regions(app).count, 1)
@@ -63,10 +65,9 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertEqual(regions(app).count, 2)
         revealSplit(region: 0, edge: "bottom", in: app).click()
         XCTAssertEqual(regions(app).count, 3)
-        moreAction("multiLayoutMerge", in: app)
+        app.buttons["multiLayoutReset"].click()
         XCTAssertEqual(regions(app).count, 2)
-        moreAction("multiLayoutUndoDraft", in: app)
-        XCTAssertEqual(regions(app).count, 3)
+        XCTAssertFalse(app.buttons["multiLayoutReset"].isEnabled)
     }
 
     @MainActor
@@ -108,7 +109,7 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
-    func testDeletePreservesOtherWindowAndUndoRestoresBothRegions() {
+    func testDeletePreservesOtherWindowAndClearKeepsTheRegion() {
         let app = launch()
         assign(region: 0, windowIndex: 0, in: app)
         assign(region: 1, windowIndex: 1, in: app)
@@ -123,11 +124,17 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
         app.buttons["multiLayoutRegion-0"].hover()
         XCTAssertFalse(app.buttons["multiLayoutDelete-0"].exists)
-        moreAction("multiLayoutUndoDraft", in: app)
+        let clear = app.buttons["multiLayoutClear-0"]
+        XCTAssertTrue(card.frame.contains(clear.frame), "Clear must stay inside the central card")
+        clear.click()
+        XCTAssertEqual(regions(app).count, 1)
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("选择窗口"))
+        XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
+        app.buttons["multiLayoutReset"].click()
         XCTAssertEqual(regions(app).count, 2)
-        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 1"))
-        XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))
-        XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("选择窗口"))
+        XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("选择窗口"))
+        XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
     }
 
     @MainActor
@@ -149,12 +156,12 @@ final class MultiWindowLayoutUITests: XCTestCase {
     @MainActor
     func testClickedEdgeGetsAnEmptyRegionWhileTheOriginalWindowStaysOpposite() {
         let app = launch()
-        assign(region: 0, windowIndex: 0, in: app)
-        assign(region: 1, windowIndex: 1, in: app)
         let originalLeft = app.buttons["multiLayoutRegion-0"].frame
         let originalRight = app.buttons["multiLayoutRegion-1"].frame
         let cases = [("left", 1, 2), ("right", 2, 1), ("top", 1, 2), ("bottom", 2, 1)]
         for (edge, emptyIndex, retainedIndex) in cases {
+            assign(region: 0, windowIndex: 0, in: app)
+            assign(region: 1, windowIndex: 1, in: app)
             revealSplit(region: 1, edge: edge, in: app).click()
             XCTAssertEqual(regions(app).count, 3)
             XCTAssertEqual(app.alerts.count, 0)
@@ -172,11 +179,12 @@ final class MultiWindowLayoutUITests: XCTestCase {
             default: XCTAssertGreaterThan(empty.frame.midY, retained.frame.midY)
             }
             XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
-            moreAction("multiLayoutUndoDraft", in: app)
+            app.buttons["multiLayoutReset"].click()
             XCTAssertEqual(regions(app).count, 2)
             XCTAssertEqual(app.buttons["multiLayoutRegion-1"].frame, originalRight)
-            XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))
-            XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+            XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("选择窗口"))
+            XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("选择窗口"))
+            XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
         }
     }
 
@@ -239,15 +247,12 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
-    func testFinalWindowReturnCannotApplyWithoutASeparateConfirmation() {
+    func testFinalWindowReturnOnlySelectsAndNextReturnAppliesLayout() {
         let app = launch()
         assign(region: 0, windowIndex: 0, in: app)
         assign(region: 1, windowIndex: 1, in: app, keyboard: true)
         XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
         XCTAssertFalse(app.descendants(matching: .any)["multiLayoutResults"].firstMatch.exists)
-        app.typeKey(.return, modifierFlags: [])
-        XCTAssertTrue(app.staticTexts["multiLayoutConfirming"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["multiLayoutApply"].exists)
         app.typeKey(.return, modifierFlags: [])
         XCTAssertFalse(app.buttons["multiLayoutApply"].waitForExistence(timeout: 1))
     }
@@ -266,7 +271,7 @@ final class MultiWindowLayoutUITests: XCTestCase {
     func testTemplateNamingReturnDoesNotApplyAndSavedTemplateContainsNoAssignments() {
         let app = launch()
         assign(region: 0, windowIndex: 0, in: app)
-        moreAction("multiLayoutSaveTemplate", in: app)
+        app.buttons["multiLayoutSaveTemplate"].click()
         let name = app.textFields["multiLayoutTemplateName"]
         XCTAssertTrue(name.waitForExistence(timeout: 2))
         name.click()
@@ -353,12 +358,6 @@ final class MultiWindowLayoutUITests: XCTestCase {
             app.typeKey(.return, modifierFlags: [])
         } else { choice.click() }
         XCTAssertFalse(app.textFields["multiLayoutWindowSearch"].waitForExistence(timeout: 1))
-    }
-
-    @MainActor
-    private func moreAction(_ identifier: String, in app: XCUIApplication) {
-        app.menuButtons["multiLayoutMore"].click()
-        app.menuItems[identifier].click()
     }
 
     @MainActor

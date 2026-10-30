@@ -280,7 +280,7 @@
 "更换起点" = "Change starting layout";
 "撤销草稿编辑" = "Undo draft edit";
 "保存为模板" = "Save as template";
-"按 Enter 应用布局，按 Esc 返回编辑。" = "Enter to apply the layout; Esc to return to editing.";
+"按 Enter 应用布局，按 Esc 取消。" = "Enter to apply the layout; Esc to cancel.";
 "点击区域选择窗口；拖动分隔线调整比例。" = "Click a region to choose a window; drag dividers to adjust proportions.";
 "编辑选中区域" = "Edit selected region";
 "选择窗口" = "Choose window";
@@ -310,7 +310,7 @@
 "从菜单栏打开快速布局，选择布局起点" = "Open Quick layout from the menu bar and choose a starting layout";
 "分割区域、调整比例，为每格选择窗口" = "Split regions, adjust proportions, and choose a window for each cell";
 "确认目标显示器，点击应用布局" = "Confirm the target display and click Apply layout";
-"预览期间窗口保持原位。模板只保存结构；撤销上次应用可尽力还原窗口。" = "Windows stay in place during preview. Templates save structure; undo can try to restore the last layout.";
+"预览期间窗口保持原位。模板只保存结构；回退可尽力还原窗口。" = "Windows stay in place during preview. Templates save structure; Revert tries to restore the previous window positions.";
 "菜单栏 → 快速布局" = "Menu bar → Quick layout";
 "预览草稿" = "Draft preview";
 "区域过小，无法继续分割。" = "Region is too small to split further.";
@@ -337,3 +337,6 @@
 "点击左上方的应用，显示排列好的窗口" = "Click Apply near the top left to show the arranged windows";
 "删除格子" = "Delete region";
 "暂时无法预览" = "Preview unavailable";
+"重置" = "Reset";
+"回退" = "Revert";
+"格子太小，请删除格子或拖动分隔线调整大小。" = "Regions are too small. Delete a region or drag a divider to resize.";
