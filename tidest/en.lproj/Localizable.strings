@@ -334,5 +334,5 @@
 "按 %@，在屏幕上打开布局" = "Press %@ to open the layout on screen";
 "从菜单栏打开快速布局" = "Open Quick layout from the menu bar";
 "拖动分隔线、点击边缘分裂，为格子选择窗口" = "Drag dividers, split at the edges, and choose a window for each region";
-"点击右上角的应用，显示排列好的窗口" = "Click Apply at the top right to show the arranged windows";
+"点击左上方的应用，显示排列好的窗口" = "Click Apply near the top left to show the arranged windows";
 "删除格子" = "Delete region";

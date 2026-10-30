@@ -20,7 +20,7 @@ struct MultiWindowLayoutView: View {
                     .frame(width: area.width, height: area.height)
                     .offset(x: area.minX, y: area.minY)
                 toolbar
-                    .frame(width: max(0, area.width - 40))
+                    .frame(width: max(0, area.width - 40), alignment: .leading)
                     .offset(x: area.minX + 20, y: area.minY + 16)
                 if controller.choosingWindow {
                     let size = CGSize(width: min(350, area.width - 32), height: min(430, area.height - 112))
@@ -58,7 +58,7 @@ struct MultiWindowLayoutView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "rectangle.split.2x1").foregroundStyle(.blue)
                 Text(settings.text("快速布局")).font(.system(size: 14, weight: .semibold))
@@ -98,23 +98,30 @@ struct MultiWindowLayoutView: View {
                 .accessibilityIdentifier("multiLayoutMore")
                 .disabled(controller.isApplying)
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            Spacer(minLength: 12)
-            HStack(spacing: 10) {
-                if controller.isLoading || controller.isApplying { ProgressView().controlSize(.small) }
-                Button(settings.text(controller.isApplying ? "正在应用…" : "应用布局")) { controller.apply() }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(!controller.canApply)
-                    .accessibilityIdentifier("multiLayoutApply")
+            .frame(height: 30)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            HStack(spacing: 4) {
                 Button(settings.text("取消")) { controller.dismiss() }
-                    .buttonStyle(.bordered).controlSize(.large)
+                    .buttonStyle(LayoutToolbarActionStyle(primary: false))
                     .disabled(controller.isApplying)
                     .accessibilityIdentifier("multiLayoutCancel")
+                Button { controller.apply() } label: {
+                    HStack(spacing: 6) {
+                        if controller.isLoading || controller.isApplying {
+                            ProgressView().controlSize(.mini).frame(width: 14, height: 14)
+                        }
+                        Text(settings.text(controller.isApplying ? "正在应用…" : "应用布局"))
+                    }
+                }
+                .buttonStyle(LayoutToolbarActionStyle(primary: true))
+                .disabled(!controller.canApply)
+                .accessibilityIdentifier("multiLayoutApply")
             }
-            .padding(8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         }
+        .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.borderless)
     }
 
@@ -264,6 +271,34 @@ struct MultiWindowLayoutView: View {
                 }.accessibilityIdentifier("multiLayoutConfirmSaveTemplate")
             }
         }.padding(24).frame(width: 400)
+    }
+}
+
+@MainActor
+private struct LayoutToolbarActionStyle: ButtonStyle {
+    let primary: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: primary ? .semibold : .medium))
+            .foregroundStyle(.white.opacity(isEnabled ? 0.95 : 0.4))
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(primary ? Color.accentColor.opacity(isEnabled ? 1 : 0.22) : .clear)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(isEnabled ? (configuration.isPressed ? 0.16 : (hovered ? 0.08 : 0)) : 0))
+                    }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 

@@ -46,7 +46,7 @@ private enum UsageTopic: String, CaseIterable {
             return [self.shortcut(settings).map { settings.text("按 %@，在屏幕上打开布局", $0.displayName) }
                         ?? settings.text("从菜单栏打开快速布局"),
                     settings.text("拖动分隔线、点击边缘分裂，为格子选择窗口"),
-                    settings.text("点击右上角的应用，显示排列好的窗口")]
+                    settings.text("点击左上方的应用，显示排列好的窗口")]
         case .docking:
             return [settings.text("按 %@，点一下要添加的窗口", shortcut.displayName),
                     settings.text("把预览移到停靠栏，再点一下"),
