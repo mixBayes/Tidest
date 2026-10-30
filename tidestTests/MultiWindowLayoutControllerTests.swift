@@ -72,6 +72,46 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertTrue(controller.choosingWindow)
     }
 
+    func testOverlayCoversTheTargetScreenAndStartsWithEditableColumns() throws {
+        let controller = try makeController()
+        controller.present(preview: true)
+        defer { controller.dismiss() }
+        let target = try XCTUnwrap(controller.target)
+        let panel = try XCTUnwrap(NSApp.windows.first { $0.identifier?.rawValue == "multiWindowLayoutPanel" && $0.isVisible })
+        XCTAssertEqual(panel.frame, target.frame)
+        XCTAssertFalse(panel.isOpaque)
+        XCTAssertFalse(panel.styleMask.contains(.titled))
+        XCTAssertEqual(controller.draft?.root.leafIDs.count, 2)
+        XCTAssertFalse(controller.choosingWindow)
+    }
+
+    func testOverlayAndWindowCoordinatesShareTheUsableAreaOnOffsetScreens() {
+        for frame in [CGRect(x: -1440, y: 200, width: 1440, height: 900),
+                      CGRect(x: 1728, y: -400, width: 900, height: 1440)] {
+            let visible = CGRect(x: frame.minX + 60, y: frame.minY + 30, width: frame.width - 60, height: frame.height - 54)
+            let display = LayoutDisplay(id: 1, name: "Test", frame: frame, visibleFrame: visible, scale: 2, primaryTop: 1117)
+            let local = display.overlayLayoutFrame
+            XCTAssertEqual(local.minX + frame.minX, display.layoutArea.minX)
+            XCTAssertEqual(local.minY + display.primaryTop - frame.maxY, display.layoutArea.minY)
+            XCTAssertEqual(local.size, display.layoutArea.size)
+        }
+    }
+
+    func testEdgeSplitTargetsItsOwnRegionAndKeepsTheOtherRegionsAssignments() throws {
+        let controller = try makeController()
+        controller.present(preview: true)
+        defer { controller.dismiss() }
+        let leaves = try XCTUnwrap(controller.draft?.root.leafIDs)
+        controller.selectRegion(leaves[0])
+        let choice = try XCTUnwrap(controller.windows.first)
+        controller.chooseWindow(choice.id)
+        controller.splitRegion(leaves[1], axis: .rows)
+        XCTAssertNil(controller.pendingEdit)
+        XCTAssertFalse(controller.choosingWindow)
+        XCTAssertEqual(controller.draft?.assignments[leaves[0]], choice.id)
+        XCTAssertEqual(controller.draft?.root.region(leaves[1])?.leafIDs.count, 2)
+    }
+
     private func makeController() throws -> MultiWindowLayoutController {
         try XCTSkipIf(NSScreen.screens.isEmpty, "Requires a macOS display session")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "tidest.multi-layout.tests.\(UUID().uuidString)"))

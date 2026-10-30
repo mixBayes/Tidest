@@ -10,6 +10,7 @@ nonisolated struct WindowShortcut: Codable, Equatable {
     static let primaryModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
     static let `default` = WindowShortcut(keyCode: UInt16(kVK_Tab), modifiers: .option, keyName: "Tab")
     static let quickLayout = WindowShortcut(keyCode: UInt16(kVK_ANSI_Q), modifiers: .option, keyName: "Q")
+    static let multiWindowLayout = WindowShortcut(keyCode: UInt16(kVK_ANSI_Q), modifiers: [.option, .shift], keyName: "Q")
     static let pinWindow = WindowShortcut(keyCode: UInt16(kVK_ANSI_W), modifiers: .option, keyName: "W")
 
     init(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, keyName: String) {

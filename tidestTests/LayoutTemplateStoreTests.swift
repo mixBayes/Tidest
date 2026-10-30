@@ -47,7 +47,7 @@ final class LayoutTemplateStoreTests: XCTestCase {
         XCTAssertTrue(LayoutTemplateStore(defaults: defaults).templates.isEmpty)
     }
 
-    func testNewShortcutIsOptInAndLegacyCustomKeysSurvive() throws {
+    func testNewShortcutDefaultsAndExplicitClearingPreserveLegacyCustomKeys() throws {
         let suite = "tidest.layout-shortcut.tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -55,7 +55,7 @@ final class LayoutTemplateStoreTests: XCTestCase {
         defaults.set(try JSONEncoder().encode(legacy), forKey: "quickLayoutShortcut")
         let settings = AppSettings(defaults: defaults)
         XCTAssertEqual(settings.layoutShortcut, legacy)
-        XCTAssertNil(settings.multiLayoutShortcut)
+        XCTAssertEqual(settings.multiLayoutShortcut, .multiWindowLayout)
         let new = WindowShortcut(keyCode: 40, modifiers: [.option, .control], keyName: "K")
         settings.multiLayoutShortcut = new
         XCTAssertEqual(AppSettings(defaults: defaults).multiLayoutShortcut, new)
@@ -65,7 +65,7 @@ final class LayoutTemplateStoreTests: XCTestCase {
         XCTAssertEqual(AppSettings(defaults: defaults).layoutShortcut, legacy)
     }
 
-    func testQuickLayoutIsAnActionableMenuEntryWithoutADefaultShortcut() throws {
+    func testQuickLayoutRemainsAnActionableMenuEntry() throws {
         let delegate = AppDelegate(permissions: PermissionStore(preview: true))
         let menu = delegate.makeStatusMenu()
         let item = try XCTUnwrap(menu.items.first { $0.action == #selector(AppDelegate.showMultiWindowLayout) })

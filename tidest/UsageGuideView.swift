@@ -43,9 +43,10 @@ private enum UsageTopic: String, CaseIterable {
                     settings.text("点击想要的位置，或按对应数字"),
                     settings.text("窗口自动移到所选位置")]
         case .multiLayout:
-            return [settings.text("从菜单栏打开快速布局，选择布局起点"),
-                    settings.text("分割区域、调整比例，为每格选择窗口"),
-                    settings.text("确认目标显示器，点击应用布局")]
+            return [self.shortcut(settings).map { settings.text("按 %@，在屏幕上打开布局", $0.displayName) }
+                        ?? settings.text("从菜单栏打开快速布局"),
+                    settings.text("拖动分隔线、点击边缘分裂，为格子选择窗口"),
+                    settings.text("点击右上角的应用，显示排列好的窗口")]
         case .docking:
             return [settings.text("按 %@，点一下要添加的窗口", shortcut.displayName),
                     settings.text("把预览移到停靠栏，再点一下"),

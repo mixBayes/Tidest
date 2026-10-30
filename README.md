@@ -12,9 +12,9 @@ The release workflow builds Developer ID signed, Apple notarized packages with v
 
 - **Switch windows:** browse horizontal previews or a scrollable tile view using the keyboard, trackpad, or mouse.
 - **Window positioning:** place the window under your pointer in a half, quarter, or the full available screen area.
-- **Quick layout:** choose a partition, assign a window to each region, and apply together; split regions, drag dividers, and save structure templates.
+- **Quick layout:** open a translucent fullscreen overlay, split regions directly on your screen, drag shared dividers, choose windows, and apply together.
 - **Window Dock:** keep windows at either screen edge, reorder them, and choose which ones stay available after closing.
-- **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. The new Quick layout shortcut starts unset.
+- **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. Quick layout defaults to Option + Shift + Q.
 
 ## Get started
 
@@ -24,7 +24,7 @@ Open Tidest and follow the permission guide. Accessibility lets Tidest bring you
 | --- | --- |
 | Switch windows | Option + Tab |
 | Window positioning | Option + Q |
-| Quick layout | Unset; open from the menu bar |
+| Quick layout | Option + Shift + Q |
 | Pick Up Window | Option + W |
 
 Change shortcuts in **Settings → Windows**. Click the current combination, hold Control, Option, or Command, then press another key; Shift may be added. Press Esc to cancel. If a shortcut is already in use, Tidest keeps the previous combination. The menu bar shows your current shortcuts.
@@ -58,21 +58,21 @@ The panel stays open after you release Option. Press Esc or click outside to can
 
 ### Quick layout
 
-Choose **Quick layout…** from the menu bar, or configure its independent shortcut in **Settings → Windows**. Existing Option + Q and custom positioning shortcuts keep their behavior.
+Press **Option + Shift + Q** to open a translucent fullscreen overlay. You can also open it from the menu bar or customize the shortcut in **Settings → Windows**. Existing Option + Q and custom positioning shortcuts keep their behavior.
 
-1. Check the target display in the upper right. It starts at the display under your pointer and stays fixed during preview.
-2. Choose **Two columns**, **Two rows**, **Large left, two right**, **Four-cell grid**, or **Blank layout**.
-3. Select a region and split it into columns or rows. Drag dividers to adjust proportions. Merge the two direct children of the same split; merge nested splits from the inside first.
-4. Click each region to search app names or window titles. Use arrow keys and Enter to select, or Esc to return to preview. Each window can occupy only one region.
-5. Once every region has a valid window, click **Apply layout**. From the keyboard, Enter in preview opens confirmation; a separate Enter applies. Enter in the window picker only selects its window.
+1. Regions appear directly on the display under your pointer, starting with two columns. Use the display menu at the upper left to switch screens; **Layouts** offers other starting points, a blank layout, and saved templates.
+2. Drag shared dividers to resize regions while keeping the usable screen area filled. Buttons on horizontal edges split a region into rows; buttons on vertical edges split it into columns.
+3. Click a region to highlight it and open its window picker. Search by app or window title, use arrow keys and Enter to select, or Esc to close the picker. Each window can occupy only one region.
+4. Once every region has a valid window, click **Apply** at the upper right to arrange and reveal the windows. **Cancel** discards the draft. From the keyboard, Enter in preview opens confirmation; a separate Enter applies. Enter in the picker only selects its window.
+5. **More actions** at the upper left offers merge, undo draft, clear selection, save template, and undo last application. Merge the two direct children of the same split; merge nested splits from the inside first.
 
 Editing, choosing windows, switching the target, and saving templates leave real windows in place. Esc in the main preview cancels. Splitting or merging assigned regions asks before clearing only affected choices; ratio changes retain assignments. **Undo draft edit** only changes the preview.
 
-**Save as template** stores a name, split structure, and normalized ratios. It excludes apps, windows, titles, paths, and display identities. Right-click a card in **My templates** to rename or delete it. Splitting depends on actual display space and usable preview sizes; merge small regions or choose a larger display.
+**Save as template** stores a name, split structure, and normalized ratios. It excludes apps, windows, titles, paths, and display identities. Right-click a card in **Layouts → My templates** to rename or delete it. Splitting depends on the actual usable screen area; merge small regions or choose a larger display.
 
 Candidates are movable, resizable standard windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. App icons and titles work without Screen Recording permission.
 
-Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview and exposes **Undo last Quick layout** in the menu bar; partial results also offer undo in the panel. Undo tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous undo operation.
+Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview and exposes **Undo last Quick layout** in the menu bar; partial results also offer undo in **More actions**. Undo tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous undo operation.
 
 Disconnecting or reconfiguring displays stops further placement and requires explicit target confirmation. Undo blocks stale coordinates after a display configuration change. See the [macOS validation checklist](docs/QUICK_LAYOUT_VALIDATION.md) for remaining platform verification.
 

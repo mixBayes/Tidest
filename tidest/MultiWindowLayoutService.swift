@@ -1,5 +1,8 @@
 import AppKit
 import ApplicationServices
+#if DEBUG
+import OSLog
+#endif
 
 nonisolated struct LayoutDisplay: Identifiable, Equatable, Sendable {
     let id: UInt32
@@ -11,6 +14,13 @@ nonisolated struct LayoutDisplay: Identifiable, Equatable, Sendable {
 
     var layoutArea: CGRect {
         CGRect(x: visibleFrame.minX, y: primaryTop - visibleFrame.maxY,
+               width: visibleFrame.width, height: visibleFrame.height)
+    }
+
+    /// SwiftUI's top-left origin within the full-screen overlay. The grid and
+    /// the AX destinations cover exactly the same usable screen rectangle.
+    var overlayLayoutFrame: CGRect {
+        CGRect(x: visibleFrame.minX - frame.minX, y: frame.maxY - visibleFrame.maxY,
                width: visibleFrame.width, height: visibleFrame.height)
     }
 
@@ -70,6 +80,9 @@ nonisolated struct LayoutBatchResult: Sendable {
 @MainActor
 final class MultiWindowLayoutService {
     private let catalog = WindowCatalog()
+    #if DEBUG
+    private static let diagnostics = Logger(subsystem: "com.mixbayes.tidest", category: "QuickLayout")
+    #endif
 
     func choices() async -> [LayoutWindowChoice] {
         guard AXIsProcessTrusted() else { return [] }
@@ -92,6 +105,14 @@ final class MultiWindowLayoutService {
     }
 
     func stop() { catalog.stop() }
+
+    func reveal(_ outcomes: [LayoutWindowOutcome]) {
+        // Geometry changes do not raise covered windows. Use the same explicit
+        // activation as single-window positioning, once the batch has settled.
+        for outcome in outcomes where outcome.status.isSuccess {
+            _ = WindowCatalog.activateWindow(outcome.choice.window)
+        }
+    }
 
     /// Preflight the entire batch before the first write; revalidate topology and identity for each subsequent write.
     func apply(_ requests: [(LayoutWindowChoice, CGRect)], topology: [LayoutDisplay], restoring: Bool = false) async -> LayoutBatchResult {
@@ -170,6 +191,9 @@ final class MultiWindowLayoutService {
                     originals.append(LayoutWindowRestore(choice: choice, frame: original))
                 }
             }
+            #if DEBUG
+            Self.diagnostics.notice("placement status=\(status.rawValue, privacy: .public) restoring=\(restoring) original=\(String(describing: preflight[choice.id]), privacy: .public) requested=\(String(describing: requested), privacy: .public) actual=\(String(describing: actual), privacy: .public)")
+            #endif
             outcomes.append(LayoutWindowOutcome(choice: choice, requested: requested, actual: actual, status: status))
         }
         return LayoutBatchResult(outcomes: outcomes, originals: originals)

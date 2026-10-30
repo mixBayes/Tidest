@@ -87,7 +87,10 @@ final class AppSettings: ObservableObject {
             guard persistChanges else { return }
             if let multiLayoutShortcut, let data = try? JSONEncoder().encode(multiLayoutShortcut) {
                 defaults.set(data, forKey: "multiWindowLayoutShortcut")
-            } else { defaults.removeObject(forKey: "multiWindowLayoutShortcut") }
+            } else {
+                // Distinguish an explicitly cleared shortcut from a first launch.
+                defaults.set(false, forKey: "multiWindowLayoutShortcut")
+            }
         }
     }
     @Published var pinningEnabled: Bool {
@@ -120,9 +123,13 @@ final class AppSettings: ObservableObject {
         shortcut = savedShortcut.flatMap { $0.isValid ? $0 : nil } ?? .default
         let savedLayoutShortcut = defaults.data(forKey: "quickLayoutShortcut").flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
         layoutShortcut = savedLayoutShortcut.flatMap { $0.isValid ? $0 : nil } ?? .quickLayout
-        multiLayoutShortcut = defaults.data(forKey: "multiWindowLayoutShortcut")
-            .flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
-            .flatMap { $0.isValid ? $0 : nil }
+        if defaults.object(forKey: "multiWindowLayoutShortcut") == nil {
+            multiLayoutShortcut = .multiWindowLayout
+        } else {
+            multiLayoutShortcut = defaults.data(forKey: "multiWindowLayoutShortcut")
+                .flatMap { try? JSONDecoder().decode(WindowShortcut.self, from: $0) }
+                .flatMap { $0.isValid ? $0 : nil }
+        }
         pinningEnabled = defaults.object(forKey: "pinnedToolbarEnabled") as? Bool ?? true
         pinnedDockSide = defaults.string(forKey: "pinnedDockSide").flatMap(PinnedDockSide.init(rawValue:)) ?? .right
         pinnedDisplayMode = defaults.string(forKey: "pinnedDisplayMode").flatMap(PinnedDisplayMode.init(rawValue:)) ?? .thumbnails

@@ -253,7 +253,7 @@ struct SettingsView: View {
 
     private var multiLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            permissionLabel("快速布局", purpose: "选择结构，为每个区域分配窗口，再一起应用", icon: "rectangle.3.group",
+            permissionLabel("快速布局", purpose: "在屏幕上划分区域，一次排列多个窗口", icon: "rectangle.3.group",
                             iconColor: .blue)
             HStack {
                 Text(settings.text("快速布局快捷键"))
@@ -267,7 +267,7 @@ struct SettingsView: View {
                     .frame(width: 180, height: 28)
             }
             HStack {
-                Text(settings.text("默认未设置，可从菜单栏打开快速布局。"))
+                Text(settings.text("按快捷键在屏幕上排列窗口，也可从菜单栏打开。"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button(settings.text("清除快捷键")) { multiLayoutShortcutMessage = onMultiLayoutShortcutChange(nil) }

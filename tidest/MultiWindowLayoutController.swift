@@ -29,7 +29,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var outcomes: [LayoutWindowOutcome] = []
     @Published private(set) var messageKey: String?
     @Published private(set) var undoAvailable = false
-    @Published var canvasSize = CGSize(width: 600, height: 400)
     let templates: LayoutTemplateStore
     let settings: AppSettings
 
@@ -73,8 +72,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     private var minimumRegionSize: CGSize {
         guard let target else { return CGSize(width: 1, height: 1) }
-        return CGSize(width: max(160 / target.layoutArea.width, 90 / max(1, canvasSize.width)),
-                      height: max(100 / target.layoutArea.height, 72 / max(1, canvasSize.height)))
+        return CGSize(width: 160 / target.layoutArea.width, height: 100 / target.layoutArea.height)
     }
 
     var sizeConflicts: Set<UUID> {
@@ -105,23 +103,27 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         target = displays.first { $0.frame.contains(NSEvent.mouseLocation) } ?? displays.first
         guard let target else { return }
         displayInvalidated = false
-        draft = nil
+        draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
         windows = []
         outcomes = []
         messageKey = nil
         choosingWindow = false
         confirming = false
+        pendingEdit = nil
+        dragSplit = nil
         undoHistory.beginDraft()
         enterHeld = false
         isPresented = true
-        let size = CGSize(width: min(1040, target.visibleFrame.width), height: min(720, target.visibleFrame.height))
-        let frame = CGRect(x: target.visibleFrame.midX - size.width / 2, y: target.visibleFrame.midY - size.height / 2,
-                           width: size.width, height: size.height)
+        let frame = target.frame
         if panel == nil {
-            let panel = MultiWindowLayoutPanel(contentRect: frame, styleMask: [.titled, .closable, .nonactivatingPanel],
+            let panel = MultiWindowLayoutPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
                                                backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
-            panel.level = .floating
+            panel.level = .statusBar
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.hidesOnDeactivate = false
             panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             panel.titlebarAppearsTransparent = true
             panel.identifier = NSUserInterfaceItemIdentifier("multiWindowLayoutPanel")
@@ -168,6 +170,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         displays = LayoutDisplay.current()
         guard let display = displays.first(where: { $0.id == id }) else { return }
         target = display
+        panel?.setFrame(display.frame, display: true)
         topology = displays
         displayInvalidated = false
         confirming = false
@@ -247,6 +250,12 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         confirming = false
     }
 
+    func splitRegion(_ id: UUID, axis: LayoutSplitAxis) {
+        selectRegion(id, openPicker: false)
+        choosingWindow = false
+        request(.split(axis))
+    }
+
     func clearWindow() {
         guard !isApplying, let region = draft?.selectedRegion else { return }
         _ = draft?.assign(nil, to: region)
@@ -317,6 +326,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                 let replacements = Dictionary(uniqueKeysWithValues: result.outcomes.map { ($0.id, $0) })
                 outcomes = previous.map { replacements[$0.id] ?? $0 }
             } else { outcomes = result.outcomes }
+            if !previewMode { service.reveal(result.outcomes) }
             if !previewMode, !result.outcomes.isEmpty, outcomes.allSatisfy({ $0.status.isSuccess }) { statistics.record() }
             finishOperation()
             if !outcomes.isEmpty, outcomes.allSatisfy({ $0.status.isSuccess }) { dismiss() }
