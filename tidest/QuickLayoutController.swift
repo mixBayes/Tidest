@@ -205,8 +205,8 @@ final class QuickLayoutController {
 
     private func presentPanel(near pointer: CGPoint) {
         guard let target else { return }
-        let frame = QuickLayoutGeometry.panelFrame(near: pointer, size: QuickLayoutView.panelSize,
-                                                   in: visibleScreenFrame)
+        let frame = QuickLayoutGeometry.centeredPanelFrame(at: pointer, size: QuickLayoutView.panelSize,
+                                                           in: visibleScreenFrame)
         if panel == nil {
             let panel = QuickLayoutPanel(contentRect: frame,
                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

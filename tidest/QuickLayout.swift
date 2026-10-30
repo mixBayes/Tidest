@@ -95,23 +95,8 @@ nonisolated enum QuickLayoutGeometry {
         return regions
     }
 
-    /// The panel uses AppKit coordinates, where y grows upward.
-    static func panelFrame(near pointer: CGPoint, size: CGSize, in visibleFrame: CGRect) -> CGRect {
-        let gap: CGFloat = 12
-        var x = pointer.x + gap
-        var y = pointer.y - gap - size.height
-        if x + size.width > visibleFrame.maxX {
-            x = pointer.x - gap - size.width
-        }
-        if y < visibleFrame.minY {
-            y = pointer.y + gap
-        }
-        x = min(max(x, visibleFrame.minX), max(visibleFrame.minX, visibleFrame.maxX - size.width))
-        y = min(max(y, visibleFrame.minY), max(visibleFrame.minY, visibleFrame.maxY - size.height))
-        return CGRect(origin: CGPoint(x: x, y: y), size: size)
-    }
-
-    /// A carried preview is held at its centre, rather than beside the pointer.
+    /// Centre the panel on the pointer, shifting only enough to keep it inside
+    /// the visible screen. AppKit coordinates grow upward.
     static func centeredPanelFrame(at pointer: CGPoint, size: CGSize, in visibleFrame: CGRect) -> CGRect {
         let x = min(max(pointer.x - size.width / 2, visibleFrame.minX),
                     max(visibleFrame.minX, visibleFrame.maxX - size.width))

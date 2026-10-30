@@ -191,28 +191,33 @@ final class QuickLayoutTests: XCTestCase {
         assertVisible(regions, within: window, excluding: [])
     }
 
-    func testPanelAppearsBelowAndToTheRightOfThePointerInAppKitCoordinates() {
+    func testPanelIsCenteredOnThePointerWhenThereIsEnoughSpace() {
         let screen = CGRect(x: -1200, y: 0, width: 1200, height: 900)
         let pointer = CGPoint(x: -800, y: 600)
-        let frame = QuickLayoutGeometry.panelFrame(near: pointer, size: CGSize(width: 300, height: 340), in: screen)
-        XCTAssertGreaterThan(frame.minX, pointer.x)
-        XCTAssertLessThan(frame.maxY, pointer.y)
+        let frame = QuickLayoutGeometry.centeredPanelFrame(at: pointer, size: CGSize(width: 300, height: 340), in: screen)
+        XCTAssertEqual(frame.midX, pointer.x)
+        XCTAssertEqual(frame.midY, pointer.y)
         XCTAssertEqual(frame.size, CGSize(width: 300, height: 340))
         XCTAssertTrue(screen.contains(frame))
     }
 
-    func testPanelFlipsAwayFromScreenEdgesAndAlwaysStaysInsideItsDisplay() {
+    func testPanelOnlyShiftsTheNecessaryDistanceAtScreenEdgesAndCorners() {
         let screen = CGRect(x: -1200, y: 1080, width: 1200, height: 900)
         let size = CGSize(width: 300, height: 340)
-        let lowerRight = CGPoint(x: -10, y: 1090)
-        let flipped = QuickLayoutGeometry.panelFrame(near: lowerRight, size: size, in: screen)
-        XCTAssertLessThan(flipped.maxX, lowerRight.x)
-        XCTAssertGreaterThan(flipped.minY, lowerRight.y)
-        for pointer in [screen.origin, CGPoint(x: screen.maxX, y: screen.maxY),
-                        CGPoint(x: screen.minX, y: screen.maxY), lowerRight,
-                        CGPoint(x: screen.midX, y: screen.midY)] {
-            let panel = QuickLayoutGeometry.panelFrame(near: pointer, size: size, in: screen)
-            XCTAssertEqual(panel.size, size)
+        let cases: [(pointer: CGPoint, origin: CGPoint)] = [
+            (screen.origin, screen.origin),
+            (CGPoint(x: 0, y: 1980), CGPoint(x: -300, y: 1640)),
+            (CGPoint(x: -1200, y: 1980), CGPoint(x: -1200, y: 1640)),
+            (CGPoint(x: -10, y: 1090), CGPoint(x: -300, y: 1080)),
+            (CGPoint(x: -600, y: 1530), CGPoint(x: -750, y: 1360)),
+            (CGPoint(x: -1200, y: 1530), CGPoint(x: -1200, y: 1360)),
+            (CGPoint(x: 0, y: 1530), CGPoint(x: -300, y: 1360)),
+            (CGPoint(x: -600, y: 1080), CGPoint(x: -750, y: 1080)),
+            (CGPoint(x: -600, y: 1980), CGPoint(x: -750, y: 1640))
+        ]
+        for (pointer, origin) in cases {
+            let panel = QuickLayoutGeometry.centeredPanelFrame(at: pointer, size: size, in: screen)
+            XCTAssertEqual(panel, CGRect(origin: origin, size: size), "Unexpected position for pointer \(pointer)")
             XCTAssertTrue(screen.contains(panel), "Panel escapes its display for pointer \(pointer)")
         }
     }
