@@ -879,7 +879,12 @@ private struct LayoutBoundaryContour: Shape {
 private struct LayoutWindowPicker: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searching: Bool
+    @State private var lastHoverLocation: CGPoint?
+    @State private var pointerSelection: UUID?
+    private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -901,24 +906,44 @@ private struct LayoutWindowPicker: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(controller.filteredWindows.enumerated()), id: \.element.id) { index, choice in
+                            let occupied = controller.assignedRegionNumber(for: choice.id)
+                            let highlighted = occupied == nil && controller.highlightedWindow == index
                             Button { controller.chooseWindow(choice.id) } label: {
                                 HStack(spacing: 8) {
                                     if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 28, height: 28) }
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(choice.window.applicationName).font(.callout.bold())
+                                            .foregroundStyle(.white.opacity(highlighted ? 1 : 0.94))
                                         Text(choice.window.title).font(.caption).lineLimit(2)
-                                        if let occupied = controller.assignedRegionNumber(for: choice.id) {
+                                            .foregroundStyle(.white.opacity(highlighted ? 0.82 : 0.66))
+                                        if let occupied {
                                             Text(settings.text("已分配到区域 %@", String(occupied))).font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
                                     Spacer(minLength: 0)
                                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(controller.highlightedWindow == index ? Color.accentColor.opacity(0.15) : Color.clear,
-                                                in: RoundedRectangle(cornerRadius: 7))
+                                    .background(highlight.opacity(highlighted ? 0.14 : 0),
+                                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .strokeBorder(highlight.opacity(highlighted ? 0.65 : 0), lineWidth: 1)
+                                            .allowsHitTesting(false)
+                                    }
+                                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.12), value: highlighted)
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).id(choice.id)
-                                .disabled(controller.assignedRegionNumber(for: choice.id) != nil)
-                                .accessibilityAddTraits(controller.highlightedWindow == index ? .isSelected : [])
+                                .disabled(occupied != nil)
+                                .onContinuousHover { phase in
+                                    // Scrolling from the keyboard can move a new row under
+                                    // a stationary pointer; only actual movement takes over.
+                                    guard case .active = phase, let point = controller.pointer,
+                                          point != lastHoverLocation else { return }
+                                    lastHoverLocation = point
+                                    guard occupied == nil else { return }
+                                    pointerSelection = choice.id
+                                    controller.highlightedWindow = index
+                                }
+                                .accessibilityAddTraits(highlighted ? .isSelected : [])
                                 .accessibilityIdentifier("multiLayoutWindow-\(index)")
                         }
                         if !controller.isLoading && controller.filteredWindows.isEmpty {
@@ -928,11 +953,20 @@ private struct LayoutWindowPicker: View {
                     }
                 }.onChange(of: controller.highlightedWindow) { _, index in
                     guard controller.filteredWindows.indices.contains(index) else { return }
-                    proxy.scrollTo(controller.filteredWindows[index].id)
+                    let id = controller.filteredWindows[index].id
+                    let fromPointer = pointerSelection == id
+                    pointerSelection = nil
+                    lastHoverLocation = controller.pointer
+                    // A hovered row is already visible. Moving it here would make
+                    // the list jump as the pointer passes its partially visible edge.
+                    if !fromPointer { proxy.scrollTo(id) }
                 }
             }
         }
-        .onAppear { searching = true }
+        .onAppear {
+            searching = true
+            lastHoverLocation = controller.pointer
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("multiLayoutWindowPicker")
     }
