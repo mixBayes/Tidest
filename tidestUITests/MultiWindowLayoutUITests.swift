@@ -384,6 +384,33 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
+    func testSavingACompleteGroupAddsOnePinnedDockItemAndClickingItClosesTheEditor() {
+        let app = launch()
+        let save = app.buttons["multiLayoutSaveCombination"]
+        XCTAssertTrue(save.exists)
+        XCTAssertFalse(save.isEnabled)
+        XCTAssertTrue(app.buttons["multiLayoutSaveTemplate"].isEnabled)
+        assign(region: 0, windowIndex: 0, in: app)
+        XCTAssertFalse(save.isEnabled)
+        assign(region: 1, windowIndex: 1, in: app)
+        XCTAssertTrue(save.isEnabled)
+        save.click()
+        let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "pinnedOpen-")).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
+        let ready = NSPredicate { _, _ in open.isEnabled && save.isEnabled }
+        expectation(for: ready, evaluatedWith: open)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "pinnedOpen-")).count, 1)
+        let pin = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "pinnedRetain-")).firstMatch
+        XCTAssertTrue(pin.exists)
+        XCTAssertTrue(pin.label.contains("取消保留"))
+        keepScreenshot("saved-combination-docked", in: app)
+        open.click()
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].waitForNonExistence(timeout: 3))
+    }
+
+    @MainActor
     func testBuiltInDuplicateHighlightsExistingLayoutAndShowsTemporaryToast() {
         let app = launch()
         assign(region: 0, windowIndex: 0, in: app, at: CGVector(dx: 0.2, dy: 0.2))

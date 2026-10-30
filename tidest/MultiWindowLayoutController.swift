@@ -17,6 +17,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
     @Published private(set) var isPresented = false
     @Published private(set) var isApplying = false
+    @Published private(set) var isSavingCombination = false
     @Published private(set) var draft: MultiWindowLayoutDraft?
     @Published private(set) var windows: [LayoutWindowChoice] = []
     @Published private(set) var displays: [LayoutDisplay] = []
@@ -44,6 +45,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var windowPreview: WindowPreview?
     let templates: LayoutTemplateStore
     let settings: AppSettings
+    var onSaveCombination: ((LayoutCombinationSnapshot, Bool) async throws -> Void)?
 
     private let service = MultiWindowLayoutService()
     private let statistics: UsageStatisticsStore
@@ -52,6 +54,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var undoTopology: [LayoutDisplay] = []
     private var undoHistory = LayoutUndoHistory<LayoutWindowRestore>()
     private var operation: Task<Void, Never>?
+    private var combinationSave: Task<Void, Never>?
+    private var combinationSaveID = UUID()
     private var loading: Task<Void, Never>?
     private var monitor: Any?
     private var screenObserver: NSObjectProtocol?
@@ -108,8 +112,40 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     var canApply: Bool {
         guard let draft else { return false }
         return draft.isComplete && draft.root.fits(minimumSize: minimumRegionSize) && sizeConflicts.isEmpty &&
-            (previewMode || AXIsProcessTrusted()) && !displayInvalidated && !isApplying && !isLoading && !isDraggingRegion && outcomes.isEmpty &&
+            (previewMode || AXIsProcessTrusted()) && !displayInvalidated && !isApplying && !isSavingCombination && !isLoading && !isDraggingRegion && outcomes.isEmpty &&
             draft.assignments.values.allSatisfy { id in windows.contains { $0.id == id } }
+    }
+
+    var isBusy: Bool { isApplying || isSavingCombination }
+
+    var canSaveCombination: Bool {
+        guard let draft else { return false }
+        return draft.isComplete && !isApplying && !isSavingCombination && !isLoading &&
+            !isDraggingRegion && outcomes.isEmpty && !displayInvalidated &&
+            draft.assignments.values.allSatisfy { id in windows.contains { $0.id == id } }
+    }
+
+    func saveCombination() {
+        guard canSaveCombination, let draft, let target, let onSaveCombination else { return }
+        let members = draft.assignments.compactMapValues { id in windows.first { $0.id == id }?.window }
+        let snapshot = LayoutCombinationSnapshot(root: draft.root, windows: members, display: target)
+        choosingWindow = false
+        isSavingCombination = true
+        messageKey = nil
+        let saveID = UUID()
+        combinationSaveID = saveID
+        combinationSave = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if combinationSaveID == saveID { isSavingCombination = false; combinationSave = nil }
+            }
+            do {
+                try await onSaveCombination(snapshot, previewMode)
+            } catch {
+                guard !Task.isCancelled, isPresented else { return }
+                messageKey = (error as? PinnedWindowLaunchError)?.localizedDescription ?? "组合未能保存，请再试一次。"
+            }
+        }
     }
 
     var hasSmallRegions: Bool { draft.map { !$0.root.fits(minimumSize: minimumRegionSize) } ?? false }
@@ -162,7 +198,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             panel.delegate = self
             self.panel = panel
         }
-        panel?.title = settings.text("快速布局")
+        panel?.title = settings.text("组合布局")
         let content = NSHostingView(rootView: MultiWindowLayoutView(controller: self, settings: settings, templates: templates))
         // Keep screen entry/exit tracking independent of SwiftUI's animated cells.
         content.addTrackingArea(NSTrackingArea(rect: .zero,
@@ -179,6 +215,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     func dismiss() {
         guard !isApplying else { return }
+        combinationSave?.cancel()
+        combinationSaveID = UUID()
+        combinationSave = nil
+        isSavingCombination = false
         loading?.cancel()
         loading = nil
         isPresented = false
@@ -315,7 +355,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func request(_ edit: Edit) {
-        guard !isApplying, outcomes.isEmpty else { return }
+        guard !isBusy, outcomes.isEmpty else { return }
         let affected: [UUID]
         switch edit {
         case .replace: affected = draft?.root.leafIDs ?? []
@@ -327,7 +367,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func confirmEdit() {
-        guard let pendingEdit else { return }
+        guard !isBusy, let pendingEdit else { return }
         commit(pendingEdit)
         self.pendingEdit = nil
     }
@@ -347,7 +387,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func selectRegion(_ id: UUID, openPicker: Bool = true) {
-        guard !isApplying, outcomes.isEmpty else { return }
+        guard !isBusy, outcomes.isEmpty else { return }
         draft?.selectedRegion = id
         if openPicker {
             search = ""
@@ -357,7 +397,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func chooseWindow(_ id: UUID) {
-        guard !isApplying, let region = draft?.selectedRegion,
+        guard !isBusy, let region = draft?.selectedRegion,
               filteredWindows.contains(where: { $0.id == id }), assignedRegionNumber(for: id) == nil else { return }
         _ = draft?.assign(id, to: region)
         choosingWindow = false
@@ -370,13 +410,13 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func clearWindow(in region: UUID) {
-        guard !isApplying, outcomes.isEmpty, draft?.assignments[region] != nil else { return }
+        guard !isBusy, outcomes.isEmpty, draft?.assignments[region] != nil else { return }
         _ = draft?.assign(nil, to: region)
         choosingWindow = false
     }
 
     func resetDraft() {
-        guard !isApplying, outcomes.isEmpty else { return }
+        guard !isBusy, outcomes.isEmpty else { return }
         draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
         choosingWindow = false
         pendingEdit = nil
@@ -385,14 +425,14 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func deleteRegion(_ id: UUID) {
-        guard !isApplying, outcomes.isEmpty, draft?.removeRegion(id) == true else { return }
+        guard !isBusy, outcomes.isEmpty, draft?.removeRegion(id) == true else { return }
         choosingWindow = false
         messageKey = nil
         dragSplit = nil
     }
 
     func previewDrop(from source: UUID, to target: LayoutRegionDropTarget) -> MultiWindowLayoutDraft? {
-        guard isPresented, !isApplying, outcomes.isEmpty, !choosingWindow,
+        guard isPresented, !isBusy, outcomes.isEmpty, !choosingWindow,
               pendingEdit == nil, !displayInvalidated else { return nil }
         return draft?.previewingDrop(from: source, to: target, minimumSize: minimumRegionSize)
     }
@@ -405,20 +445,20 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     }
 
     func resize(_ split: UUID, ratio: Double, ended: Bool) {
-        guard !isApplying, outcomes.isEmpty else { return }
+        guard !isBusy, outcomes.isEmpty else { return }
         if dragSplit != split { draft?.checkpoint(); dragSplit = split }
         draft?.resize(split, ratio: ratio, minimumSize: minimumRegionSize)
         if ended { dragSplit = nil }
     }
 
     func undoDraft() {
-        guard !isApplying, outcomes.isEmpty else { return }
+        guard !isBusy, outcomes.isEmpty else { return }
         draft?.undo()
         choosingWindow = false
     }
 
     func continueEditing() {
-        guard !isApplying else { return }
+        guard !isBusy else { return }
         outcomes = []
         messageKey = nil
         undoHistory.beginDraft()
@@ -534,7 +574,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         if !previewMode {
             let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.isPresented, !self.isApplying, self.loading == nil else { return }
+                    guard let self, self.isPresented, !self.isBusy, self.loading == nil else { return }
                     self.reloadWindows()
                 }
             }
@@ -570,7 +610,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             else { dismiss() }
             return true
         }
-        if isApplying { return enter }
+        if isBusy { return enter }
         if choosingWindow {
             let count = filteredWindows.count
             if event.keyCode == kVK_DownArrow || event.keyCode == kVK_UpArrow {

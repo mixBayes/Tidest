@@ -17,7 +17,7 @@ final class TiledMouseSelectionTests: XCTestCase {
         XCTAssertEqual(controller.selection.index, 0)
         XCTAssertTrue(controller.selectionWasMovedByMouse)
         XCTAssertTrue(controller.isPresented)
-        XCTAssertTrue(NSApp.windows.contains { $0.title == "Tidest 窗口切换" && $0.isVisible && $0.acceptsMouseMovedEvents })
+        XCTAssertTrue(NSApp.windows.contains { $0.title == "Tidest 切换窗口" && $0.isVisible && $0.acceptsMouseMovedEvents })
         controller.move(1)
         XCTAssertEqual(controller.selection.index, 1)
         XCTAssertFalse(controller.selectionWasMovedByMouse)

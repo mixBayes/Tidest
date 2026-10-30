@@ -51,12 +51,12 @@
 "上一个窗口" = "Previous window";
 "没有可切换的窗口" = "No windows to switch to";
 "这个窗口暂时无法切换，请再试一次" = "Can’t switch to this window right now. Try again.";
-"Tidest 窗口切换" = "Tidest Window Switcher";
+"Tidest 切换窗口" = "Tidest Switch Windows";
 "应用" = "App";
 "关于 Tidest" = "About Tidest";
 "关于 Tidest %@" = "About Tidest %@";
 "退出" = "Quit";
-"窗口切换" = "Switch windows";
+"切换窗口" = "Switch windows";
 "%@ · %@" = "%@ · %@";
 "快捷键" = "Keyboard shortcut";
 "请按下快捷键…" = "Press a shortcut…";
@@ -79,15 +79,14 @@
 "屏幕录制 · 可选" = "Screen Recording · Optional";
 "用于切换到你选择的窗口。" = "Switch to the window you choose.";
 "用于在切换时显示窗口截图。" = "Show window screenshots while switching.";
-"窗口切换和截图预览都可以使用。" = "Window switching and screenshot previews are ready.";
+"现在可以切换窗口并查看截图预览。" = "Window switching and screenshot previews are ready.";
 "未开启时，无法使用 Tidest。" = "Tidest needs this permission to work.";
-"未开启时显示应用图标，窗口切换照常使用。" = "Without it, you’ll see app icons. Window switching still works.";
+"未开启时显示应用图标，仍可照常切换窗口。" = "Without it, you’ll see app icons. Window switching still works.";
 "下次不再提醒" = "Don’t remind me again";
 "暂不开启" = "Not now";
 "完成" = "Done";
-"快速布局" = "Quick layout";
-"Option + Q · 快速布局" = "Option + Q · Quick layout";
-"将鼠标下的窗口放到你选择的位置" = "Place the window under your pointer where you choose";
+"组合布局" = "Combined layout";
+"调整鼠标所指窗口的位置和大小" = "Move and resize the window under your pointer";
 "左上角" = "Top left";
 "上半屏" = "Top half";
 "右上角" = "Top right";
@@ -101,28 +100,27 @@
 "Esc 取消" = "Esc to cancel";
 "受窗口大小限制，已尽量按所选位置排列。" = "The window has size limits. It has been placed as close as possible to your chosen layout.";
 "这个窗口暂时无法调整，请再试一次。" = "This window could not be adjusted. Please try again.";
-"暂时无法启用快速布局，请重新打开 Tidest。" = "Quick layout could not be enabled. Please reopen Tidest.";
-"窗口停靠" = "Window Dock";
-"拾取窗口" = "Pick Up Window";
+"暂时无法启用组合布局，请重新打开 Tidest。" = "Combined layout could not be enabled. Please reopen Tidest.";
+"停靠窗口" = "Dock window";
 "按住 %@ 拖动窗口到屏幕右边缘" = "Hold %@ and drag a window to the right edge of the screen";
 "松开即可移除" = "Release to remove";
 "不会关闭窗口" = "Keeps the window open";
 "拖出后松开移除" = "Drag out to remove";
 "拖动调整顺序" = "Drag to reorder";
 "松开鼠标添加窗口" = "Release the mouse to add the window";
-"这个快捷键用于窗口切换，请选择其他快捷键。" = "This shortcut switches windows. Choose another shortcut.";
-"这个快捷键用于拾取窗口，请选择其他快捷键。" = "This shortcut picks up windows. Choose another shortcut.";
+"这个快捷键用于切换窗口，请选择其他快捷键。" = "This shortcut switches windows. Choose another shortcut.";
+"这个快捷键用于停靠窗口，请选择其他快捷键。" = "This shortcut docks windows. Choose another shortcut.";
 "这个窗口暂时无法添加，请再试一次。" = "Can’t add this window right now. Try again.";
-"暂时无法启用拾取窗口，请重新打开 Tidest。" = "Pick Up Window could not be enabled. Please reopen Tidest.";
-"把常用窗口放在屏幕一侧" = "Keep frequently used windows at the side of the screen";
+"暂时无法启用停靠窗口，请重新打开 Tidest。" = "Dock window could not be enabled. Please reopen Tidest.";
+"把常用窗口的预览放到屏幕侧边" = "Keep previews of frequently used windows at the screen edge";
 "拖到屏幕右边缘添加窗口" = "Drag to the right edge of the screen to add a window";
 "按住 %@，把窗口拖到右边缘" = "Hold %@ and drag a window to the right edge";
 "暂时无法打开这个窗口" = "Can’t open this window right now";
 "松开即可添加" = "Release to add";
-"按 %@ 拾取窗口，点击窗口后再点停靠栏" = "Press %@ to pick up a window. Click the window, then click the dock.";
-"按 %@ 拾取窗口\n然后停靠在此" = "Press %@ to pick up a window\nThen dock it here";
+"按 %@，点击窗口后再点停靠栏" = "Press %@, click the window, then click the dock.";
+"按 %@ 选择窗口\n然后停靠在此" = "Press %@ to choose a window\nThen dock it here";
 "将窗口停靠在此。" = "Dock the window here.";
-"Tidest 拾取窗口" = "Tidest Pick Up Window";
+"Tidest 停靠窗口" = "Tidest Dock Window";
 "按 ESC 退出" = "Press ESC to exit";
 
 "保留" = "Keep";
@@ -148,7 +146,7 @@
 "向内拖动，移到另一侧" = "Drag inward to move to the other side";
 
 // Interface review refinements
-"窗口切换快捷键" = "Window switching shortcut";
+"切换窗口快捷键" = "Switch windows shortcut";
 "启用停靠栏" = "Enable Window Dock";
 "用于切换、布局和停靠窗口" = "Switch, arrange and dock windows";
 "已开启" = "Enabled";
@@ -161,7 +159,7 @@
 "长按 %@ 可连续选择窗口" = "Hold %@ to keep cycling through windows";
 "开始使用 Tidest" = "Start using Tidest";
 "用于显示窗口预览。停靠预览保存在本机。" = "Show window previews. Dock previews are saved on this Mac.";
-"窗口切换和窗口预览都可以使用。" = "Window switching and previews are ready.";
+"现在可以切换窗口并查看预览。" = "Window switching and previews are ready.";
 "现在可以切换窗口。" = "You can now switch windows.";
 "使用说明" = "How to use";
 "按 %@，点一下窗口\n再点这里" = "Press %@, click a window,\nthen click here";
@@ -178,8 +176,8 @@
 "点击要添加的窗口" = "Click the window to add";
 "切换为图标 + 标题" = "Switch to icons and titles";
 "切换为缩略图" = "Switch to thumbnails";
-"快速布局快捷键" = "Quick layout shortcut";
-"这个快捷键用于快速布局，请选择其他快捷键。" = "This shortcut opens quick layout. Choose another shortcut.";
+"组合布局快捷键" = "Combined layout shortcut";
+"这个快捷键用于组合布局，请选择其他快捷键。" = "This shortcut opens combined layout. Choose another shortcut.";
 "Tidest 更新" = "Tidest Update";
 
 // Animated usage guide
@@ -241,10 +239,10 @@
 "%@，有新版本" = "%@, update available";
 
 /* Window positioning and multi-window quick layout */
-"窗口定位" = "Window positioning";
-"窗口定位快捷键" = "Window positioning shortcut";
-"Option + Q · 窗口定位" = "Option + Q · Window positioning";
-"这个快捷键用于窗口定位，请选择其他快捷键。" = "This shortcut is used for window positioning. Choose another.";
+"单窗布局" = "Single-window layout";
+"单窗布局快捷键" = "Single-window layout shortcut";
+"Option + Q · 单窗布局" = "Option + Q · Single-window layout";
+"这个快捷键用于单窗布局，请选择其他快捷键。" = "This shortcut is used for single-window layout. Choose another.";
 "未设置" = "Not set";
 "选择结构，为每个区域分配窗口，再一起应用" = "Choose a structure, assign windows, then apply";
 "清除快捷键" = "Clear shortcut";
@@ -328,7 +326,7 @@
 "点击格子选窗口，拖动分隔线调整大小。" = "Click a region to choose a window. Drag dividers to resize.";
 "在屏幕上划分区域，一次排列多个窗口" = "Divide your screen and arrange several windows at once";
 "按快捷键在屏幕上排列窗口。" = "Use the shortcut to arrange windows on screen.";
-"设置快捷键后，即可打开快速布局。" = "Set a shortcut to open Quick layout.";
+"设置快捷键后，即可打开组合布局。" = "Set a shortcut to open Combined layout.";
 "先在“设置 → 窗口”中设置快捷键" = "Set a shortcut in Settings → Windows first";
 "按 %@，在屏幕上打开布局" = "Press %@ to open the layout on screen";
 "拖动分隔线、点击边缘分裂，为格子选择窗口" = "Drag dividers, split at the edges, and choose a window for each region";
@@ -346,3 +344,13 @@
 "松手交换窗口" = "Release to swap windows";
 "松手移动格子" = "Release to move the region";
 "拖到格子中间交换，拖到屏幕边缘移动" = "Drag to a region to swap, or to a screen edge to move";
+"停靠窗口快捷键" = "Dock window shortcut";
+
+"保存模板" = "Save template";
+"保存当前组合" = "Save current group";
+"请先为每个格子选择窗口" = "Choose a window for every cell first";
+"正在保存组合…" = "Saving group…";
+"组合未能保存，请再试一次。" = "Could not save the group. Please try again.";
+"组合 %@" = "Group %@";
+"恢复这组窗口" = "Restore this group of windows";
+"部分窗口未能恢复，请再试一次。" = "Some windows could not be restored. Please try again.";

@@ -6,10 +6,10 @@ private enum UsageTopic: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .switching: "窗口切换"
-        case .layout: "窗口定位"
-        case .multiLayout: "快速布局"
-        case .docking: "窗口停靠"
+        case .switching: "切换窗口"
+        case .layout: "单窗布局"
+        case .multiLayout: "组合布局"
+        case .docking: "停靠窗口"
         }
     }
 
@@ -377,7 +377,7 @@ private struct UsageDemo: View {
                 }
                 .offset(x: blend(75, 8, placement), y: blend(53, 30, placement))
             VStack(alignment: .leading, spacing: 8) {
-                Text(settings.text("窗口定位")).font(.system(size: 10, weight: .semibold))
+                Text(settings.text("单窗布局")).font(.system(size: 10, weight: .semibold))
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(43), spacing: 5), count: 3), spacing: 5) {
                     ForEach(QuickLayout.allCases) { item in
                         let selected = time >= 3.7 && item == .left

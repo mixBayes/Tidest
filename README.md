@@ -11,10 +11,10 @@ The release workflow builds Developer ID signed, Apple notarized packages with v
 ## Features
 
 - **Switch windows:** browse horizontal previews or a scrollable tile view using the keyboard, trackpad, or mouse.
-- **Window positioning:** place the window under your pointer in a half, quarter, or the full available screen area.
-- **Quick layout:** open a translucent fullscreen overlay, split regions directly on your screen, drag shared dividers, choose windows, and apply together.
-- **Window Dock:** keep windows at either screen edge, reorder them, and choose which ones stay available after closing.
-- **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. Quick layout defaults to Option + Shift + Q.
+- **Single-window layout:** place the window under your pointer in a half, quarter, or the full available screen area.
+- **Combined layout:** open a translucent fullscreen overlay, split regions directly on your screen, drag shared dividers, choose windows, and apply together.
+- **Dock window:** keep window previews at either screen edge, reorder them, and choose which ones stay available after closing.
+- **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. Combined layout defaults to Option + Shift + Q.
 
 ## Get started
 
@@ -23,9 +23,9 @@ Open Tidest and follow the permission guide. Accessibility lets Tidest bring you
 | Action | Default shortcut |
 | --- | --- |
 | Switch windows | Option + Tab |
-| Window positioning | Option + Q |
-| Quick layout | Option + Shift + Q |
-| Pick Up Window | Option + W |
+| Single-window layout | Option + Q |
+| Combined layout | Option + Shift + Q |
+| Dock window | Option + W |
 
 Change shortcuts in **Settings → Windows**. Click the current combination, hold Control, Option, or Command, then press another key; Shift may be added. Press Esc to cancel. If a shortcut is already in use, Tidest keeps the previous combination. The menu bar shows your current shortcuts.
 
@@ -43,7 +43,7 @@ Click a preview to switch immediately. Press Esc or click outside the panel to c
 
 Windows follow their front-to-back order on the current desktop. Minimized windows are restored when selected. Each preview keeps the window's proportions, and refreshes preserve your selection and scroll position.
 
-### Window positioning
+### Single-window layout
 
 Press **Option + Q**, then point at a visible part of the window you want to arrange. Click a layout or press its number:
 
@@ -56,17 +56,17 @@ Corners use a quarter of the screen. Layouts use the available area on the scree
 
 The panel stays open after you release Option. Press Esc or click outside to cancel.
 
-### Quick layout
+### Combined layout
 
-Press **Option + Shift + Q** to open a translucent fullscreen overlay. Customize the shortcut in **Settings → Windows**. The menu bar shows the current shortcut as a non-clickable reminder. If you clear the shortcut, set one again in Settings to open Quick layout. Existing Option + Q and custom positioning shortcuts keep their behavior.
+Press **Option + Shift + Q** to open a translucent fullscreen overlay. Customize the shortcut in **Settings → Windows**. The menu bar shows the current shortcut as a non-clickable reminder. If you clear the shortcut, set one again in Settings to open Combined layout. Existing Option + Q and custom positioning shortcuts keep their behavior.
 
-1. Regions appear directly on the display under your pointer, starting with two columns. The upper-left toolbar shows thumbnails for a blank layout, four starting layouts, and saved templates. Hover to see names and scroll horizontally when needed. To use another display, close Quick layout, move your pointer there, and reopen it.
+1. Regions appear directly on the display under your pointer, starting with two columns. The upper-left toolbar shows thumbnails for a blank layout, four starting layouts, and saved templates. Hover to see names and scroll horizontally when needed. To use another display, close Combined layout, move your pointer there, and reopen it.
 2. Move near a shared divider to reveal a circular drag handle and highlight its line. The handle follows your pointer along the divider and shows two arrows separated by a dashed line. Drag to resize regions while keeping the usable screen area filled. Split buttons take priority in their nearby areas. Buttons on horizontal edges split a region into rows; buttons on vertical edges split it into columns.
 3. Hover over a region to highlight it. Soft guides mark the midpoint of each edge. Moving near a guide reveals its split button in a rounded inward curve; moving away retracts it. The original straight border stays visible. Buttons brighten on hover and respond when pressed. When splitting, a light at the curve’s tip separates into two points that follow the existing curve and border to its ends. Only then does the button retract and the new divider move into position. The new cards then fade in. The delete button fades in and out at the upper right of the central card. Click the region to open its window picker. Search by app or window title, use arrow keys and Enter to select, or Esc to close the picker. Each window can occupy only one region.
 4. Once every region has a valid window, click **Apply** near the upper left or press **Enter** once to arrange and reveal all selected windows. **Cancel** and **Apply** form a separate group beside the original toolbar. **Cancel** or **Esc** discards the draft. Enter in the picker only selects its window; release the key and press Enter again to apply the layout.
-5. **Reset**, **Save as template**, and **Revert** appear as icons beside the layout thumbnails, with names on hover. **Reset** restores the default two columns and clears the draft's window choices. **Revert** tries to restore the window positions from before the last application; it is disabled when there is nothing to restore.
+5. **Reset**, **Save template**, **Save current group**, and **Revert** appear as icons beside the layout thumbnails, with names on hover. **Reset** restores the default two columns and clears the draft's window choices. **Revert** tries to restore the window positions from before the last application; it is disabled when there is nothing to restore.
 
-Hovering over a window starts a snapshot immediately and shows it beside the picker after 120 ms. Arrow keys also update the preview, with a crossfade between windows. The 320 × 240 pt preview preserves the window's proportions, stays vertically centered beside the picker with a 12 pt gap, and uses the left side when the right side has insufficient room. Snapshots are reused throughout the current Quick Layout session, including list refreshes and choosing windows for other regions. Closing Quick Layout releases the cache asynchronously. Windows without a snapshot remain selectable.
+Hovering over a window starts a snapshot immediately and shows it beside the picker after 120 ms. Arrow keys also update the preview, with a crossfade between windows. The 320 × 240 pt preview preserves the window's proportions, stays vertically centered beside the picker with a 12 pt gap, and uses the left side when the right side has insufficient room. Snapshots are reused throughout the current Combined layout session, including list refreshes and choosing windows for other regions. Closing Combined layout releases the cache asynchronously. Windows without a snapshot remain selectable.
 
 Drag the central card of a region onto another region to swap window choices, or to the left, right, top, or bottom screen edge to move the whole region. The remaining regions expand to fill the space. Empty regions can move too, and window choices stay with moved regions. A preview shows the result before release; releasing outside the layout cancels. Moving the large left region to the right keeps its width and the two small regions' top-to-bottom order. When changing direction, a region that previously spanned the whole dimension takes half the space. Arrangements with insufficient space do not accept the drop.
 
@@ -74,17 +74,19 @@ Hover over an assigned region to reveal **Clear window choice**, which clears on
 
 Editing, choosing windows, resetting, and saving templates leave real windows in place. Esc in the main preview cancels. Clicking an edge’s split button adds an empty region on that side and keeps the original window in the opposite half, without confirmation. Changing layouts or templates asks before clearing existing window choices; ratio changes retain assignments.
 
-**Save as template** suggests an available name such as “Template 1”, which you can change. If the layout matches a starting layout or a saved template, its thumbnail is highlighted and a brief message appears instead of saving another copy. Templates store only a name, split structure, and normalized ratios, excluding apps, windows, titles, paths, and display identities. Right-click a template thumbnail in the toolbar to rename or delete it. Splitting depends on the actual usable screen area; delete a region or drag a divider when regions are too small.
+**Save template** suggests an available name such as “Template 1”, which you can change. If the layout matches a starting layout or a saved template, its thumbnail is highlighted and a brief message appears instead of saving another copy. Templates store only a name, split structure, and normalized ratios, excluding apps, windows, titles, paths, and display identities. Right-click a template thumbnail in the toolbar to rename or delete it. Splitting depends on the actual usable screen area; delete a region or drag a divider when regions are too small.
 
 Candidates are movable, resizable standard windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. App icons and titles work without Screen Recording permission.
 
-Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview; reopen Quick layout with its shortcut and choose **Revert** from the toolbar to restore the previous positions. Partial results also allow **Revert** from the toolbar. Revert tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous restoration record.
+Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview; reopen Combined layout with its shortcut and choose **Revert** from the toolbar to restore the previous positions. Partial results also allow **Revert** from the toolbar. Revert tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous restoration record.
 
 Disconnecting or reconfiguring displays stops further placement and requires explicit target confirmation. Undo blocks stale coordinates after a display configuration change. See the [macOS validation checklist](docs/QUICK_LAYOUT_VALIDATION.md) for remaining platform verification.
 
-### Window Dock
+Saving a template shrinks the grid into its toolbar thumbnail. **Save current group** becomes available after every cell has a window. It saves the grid proportions and window assignments as one pinned dock item: the dock slides out, then the group preview flies into it. Groups survive Tidest restarts; clicking one restores its windows to the saved cells, using the dock’s existing reopening support for closed windows. Saving does not move real windows. With Reduce Motion enabled, both save animations use a fade.
 
-Window Dock is enabled by default on the right side of the screen.
+### Dock window
+
+The dock is enabled by default on the right side of the screen.
 
 1. Press **Option + W** to start picking up a window.
 2. Click the highlighted window to pick up its preview. The original window stays where it is.
@@ -112,11 +114,11 @@ Saved folders, directories, and tabs follow changes while the window is open. Re
 
 ## Settings and permissions
 
-Open **How to use** from the menu bar for animated examples of window switching, window positioning, Quick layout, and the Window Dock, using your current shortcuts. Pause, replay, drag the progress bar, or click a step to inspect it. Seeking pauses at that position; choose **Resume** to continue. With macOS **Reduce motion** enabled, drag the bar or choose a static step instead. Reading the guide does not require permissions.
+Open **How to use** from the menu bar for animated examples of **Switch windows**, **Single-window layout**, **Combined layout**, and **Dock window**, using your current shortcuts. Pause, replay, drag the progress bar, or click a step to inspect it. Seeking pauses at that position; choose **Resume** to continue. With macOS **Reduce motion** enabled, drag the bar or choose a static step instead. Reading the guide does not require permissions.
 
-**Settings → Windows** contains preview styles, shortcuts, and the Window Dock toggle. **Settings → General** contains language and permission settings. Tidest follows your system language until you choose one, and applies changes immediately.
+**Settings → Windows** contains preview styles, shortcuts, and the **Dock window** toggle. **Settings → General** contains language and permission settings. Tidest follows your system language until you choose one, and applies changes immediately.
 
-In the menu bar, **Usage Statistics** sits below **How to use** and shows today's uses, all-time uses, and a seven-day bar chart. Hover over the chart to highlight a day and see its count. The info button explains the counting rules: each successful window switch, window positioning, complete Quick layout, dock addition, or opening from the dock counts once; canceled or failed actions and simply opening a panel do not count. Counting starts when a version with statistics first launches; earlier usage cannot be recovered.
+In the menu bar, **Usage Statistics** sits below **How to use** and shows today's uses, all-time uses, and a seven-day bar chart. Hover over the chart to highlight a day and see its count. The info button explains the counting rules: each successful window switch, single-window layout, complete Combined layout, dock addition, or opening from the dock counts once; canceled or failed actions and simply opening a panel do not count. Counting starts when a version with statistics first launches; earlier usage cannot be recovered.
 
 | Permission | Purpose |
 | --- | --- |
@@ -124,7 +126,7 @@ In the menu bar, **Usage Statistics** sits below **How to use** and shows today'
 | Screen Recording · Optional | Show window screenshots in the switcher and dock |
 | Automation · Per app | Save and reopen folders, terminal directories, and browser tabs for kept windows |
 
-Without Screen Recording, Tidest shows app icons and window titles; switching, positioning, and Quick layout remain available. Choose **Not now** to continue, and **Don't remind me again** to stop future reminders.
+Without Screen Recording, Tidest shows app icons and window titles; switching, positioning, and Combined layout remain available. Choose **Not now** to continue, and **Don't remind me again** to stop future reminders.
 
 Tidest checks permissions when it starts or is reopened. Use **Open System Settings** in General to manage them. macOS asks for Automation permission separately when Tidest reads or controls a supported app.
 
@@ -190,9 +192,9 @@ Debug builds provide UI preview arguments for development. These previews use sa
 | Usage guide | `--ui-preview-usage`; add `--ui-preview-usage-static` for static steps |
 | Update states | `--ui-preview-about --ui-preview-update=<state>`, where state is `checking`, `up-to-date`, `available`, `failed`, or `download-failed`; uses sample responses and never opens a browser |
 | Window switcher | `--ui-preview-switcher`; optionally `--ui-preview-tiled`, `--ui-preview-count=150`, `--ui-preview-thumbnails`, or `--ui-preview-refresh` |
-| Window positioning | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
-| Multi-window Quick layout | `--ui-preview-multi-layout`; optionally `--ui-preview-multi-layout-partial` for partial failure feedback |
-| Window Dock | `--ui-preview-pinned`; optionally `--ui-preview-count=20` |
+| Single-window layout | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
+| Combined layout | `--ui-preview-multi-layout`; optionally `--ui-preview-multi-layout-partial` for partial failure feedback |
+| Dock window | `--ui-preview-pinned`; optionally `--ui-preview-count=20` |
 | Preview language | `--ui-preview-language=<code>`, where code is `en`, `zh-Hans`, `zh-Hant`, `ja`, or `ko` |
 | Enabled permissions in Settings preview | `--ui-preview-granted-accessibility` and `--ui-preview-granted-screen` |
 

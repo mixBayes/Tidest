@@ -218,7 +218,7 @@ final class QuickLayoutController {
             }
             self.panel = panel
         }
-        panel?.title = settings.text("窗口定位")
+        panel?.title = settings.text("单窗布局")
         panel?.contentView = Self.glassContentView(for: QuickLayoutView(settings: settings,
             title: target.window.title, applicationName: target.window.applicationName,
             icon: target.window.icon, onChoose: { [weak self] in self?.choose($0) },

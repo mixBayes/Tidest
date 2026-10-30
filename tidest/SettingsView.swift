@@ -147,7 +147,7 @@ struct SettingsView: View {
 
     private var displaySettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            settingTitle("窗口切换", icon: "rectangle.3.group", iconColor: .blue)
+            settingTitle("切换窗口", icon: "rectangle.3.group", iconColor: .blue)
             HStack(spacing: 12) {
                 displayModeOption(.carousel, imageName: "ModeCarousel")
                 displayModeOption(.tiled, imageName: "ModeTiled")
@@ -187,7 +187,7 @@ struct SettingsView: View {
     private var shortcutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Text(settings.text("窗口切换快捷键"))
+                Text(settings.text("切换窗口快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 ShortcutRecorder(shortcut: settings.shortcut, settings: settings,
@@ -196,7 +196,7 @@ struct SettingsView: View {
                                  onInvalid: { shortcutMessage = "请按住 Control、Option 或 Command，再按另一个键。" },
                                  onRecordingChange: { recording in
                                      updateRecording(recording, for: .switching)
-                                 }, labelKey: "窗口切换快捷键")
+                                 }, labelKey: "切换窗口快捷键")
                     .frame(width: 180, height: 28)
             }
             HStack {
@@ -219,10 +219,10 @@ struct SettingsView: View {
 
     private var quickLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            permissionLabel("窗口定位", purpose: "将鼠标下的窗口放到你选择的位置", icon: "rectangle.split.2x2",
+            permissionLabel("单窗布局", purpose: "调整鼠标所指窗口的位置和大小", icon: "rectangle.split.2x2",
                             iconColor: Color(red: 0.82, green: 0.40, blue: 0.12))
             HStack(spacing: 12) {
-                Text(settings.text("窗口定位快捷键"))
+                Text(settings.text("单窗布局快捷键"))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 ShortcutRecorder(shortcut: settings.layoutShortcut, settings: settings,
@@ -230,7 +230,7 @@ struct SettingsView: View {
                                  onChange: { layoutShortcutMessage = onLayoutShortcutChange($0) },
                                  onInvalid: { layoutShortcutMessage = "请按住 Control、Option 或 Command，再按另一个键。" },
                                  onRecordingChange: { recording in updateRecording(recording, for: .layout) },
-                                 accessibilityIdentifier: "layoutShortcutRecorder", labelKey: "窗口定位快捷键")
+                                 accessibilityIdentifier: "layoutShortcutRecorder", labelKey: "单窗布局快捷键")
                     .frame(width: 180, height: 28)
             }
             HStack {
@@ -253,22 +253,22 @@ struct SettingsView: View {
 
     private var multiLayoutSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            permissionLabel("快速布局", purpose: "在屏幕上划分区域，一次排列多个窗口", icon: "rectangle.3.group",
+            permissionLabel("组合布局", purpose: "在屏幕上划分区域，一次排列多个窗口", icon: "rectangle.3.group",
                             iconColor: .blue)
             HStack {
-                Text(settings.text("快速布局快捷键"))
+                Text(settings.text("组合布局快捷键"))
                 Spacer()
                 ShortcutRecorder(shortcut: settings.multiLayoutShortcut, settings: settings,
                     isRecording: recordingBinding(for: .multiLayout),
                     onChange: { multiLayoutShortcutMessage = onMultiLayoutShortcutChange($0) },
                     onInvalid: { multiLayoutShortcutMessage = "请按住 Control、Option 或 Command，再按另一个键。" },
                     onRecordingChange: { updateRecording($0, for: .multiLayout) },
-                    accessibilityIdentifier: "multiLayoutShortcutRecorder", labelKey: "快速布局快捷键")
+                    accessibilityIdentifier: "multiLayoutShortcutRecorder", labelKey: "组合布局快捷键")
                     .frame(width: 180, height: 28)
             }
             HStack {
                 Text(settings.text(settings.multiLayoutShortcut == nil
-                    ? "设置快捷键后，即可打开快速布局。"
+                    ? "设置快捷键后，即可打开组合布局。"
                     : "按快捷键在屏幕上排列窗口。"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
@@ -292,14 +292,14 @@ struct SettingsView: View {
                     onPinEnabledChange(enabled)
                 }
             )) {
-                permissionLabel("窗口停靠", purpose: "把常用窗口放在屏幕一侧", icon: "sidebar.right", iconColor: .purple)
+                permissionLabel("停靠窗口", purpose: "把常用窗口的预览放到屏幕侧边", icon: "sidebar.right", iconColor: .purple)
             }
             .toggleStyle(.switch)
             .accessibilityIdentifier("pinningEnabledSwitch")
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text(settings.text("拾取窗口"))
+                    Text(settings.text("停靠窗口快捷键"))
                     Spacer()
                     ShortcutRecorder(shortcut: settings.pinShortcut, settings: settings,
                                      isRecording: recordingBinding(for: .pinning),
@@ -308,7 +308,7 @@ struct SettingsView: View {
                                      onRecordingChange: { recording in
                                          updateRecording(recording, for: .pinning)
                                      },
-                                     accessibilityIdentifier: "pinShortcutRecorder", labelKey: "拾取窗口")
+                                     accessibilityIdentifier: "pinShortcutRecorder", labelKey: "停靠窗口快捷键")
                         .frame(width: 180, height: 28)
                 }
                 HStack {
@@ -320,7 +320,7 @@ struct SettingsView: View {
                         .disabled(settings.pinShortcut.hasSameKeys(as: .pinWindow) || isRecordingAnyShortcut)
                         .accessibilityIdentifier("resetPinShortcut")
                 }
-                Text(settings.text("按 %@ 拾取窗口，点击窗口后再点停靠栏", settings.pinShortcut.symbolDisplayName))
+                Text(settings.text("按 %@，点击窗口后再点停靠栏", settings.pinShortcut.symbolDisplayName))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -413,7 +413,7 @@ struct SettingsView: View {
                           granted: permissions.screenCaptureGranted, identifier: "screenCapturePermission",
                           action: permissions.openScreenCaptureSettings)
             Divider()
-            Text(settings.text("未开启时显示应用图标，窗口切换照常使用。"))
+            Text(settings.text("未开启时显示应用图标，仍可照常切换窗口。"))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

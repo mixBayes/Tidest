@@ -6,6 +6,7 @@ import OSLog
 
 @MainActor
 final class PinnedWindowsController {
+    var onActivateCombination: (() -> Void)?
     private struct PickedWindow {
         let id = UUID()
         let selectionID: UUID
@@ -36,6 +37,9 @@ final class PinnedWindowsController {
     private let catalog: WindowCatalog
     private let launchService = PinnedWindowLaunchService()
     private let layoutService = WindowLayoutService()
+    private let combinationLayoutService = MultiWindowLayoutService()
+    private var combinationWindows: [UUID: [UUID: WindowItem]] = [:]
+    private var placingCombinationID: UUID?
     private let windowHighlight = PinnedWindowHighlight()
     private let captureTip = PinnedCaptureTip()
     private var windows: [PinnedWindowEntry] = []
@@ -117,7 +121,13 @@ final class PinnedWindowsController {
         self.previewStore = self.settings.persistChanges ? previewStore ?? PinnedWindowPreviewStore() : nil
         self.catalog = catalog ?? WindowCatalog()
         do {
-            windows = try self.settings.loadSavedPinnedWindows().map(PinnedWindowEntry.init(saved:))
+            windows = try self.settings.loadSavedPinnedItems().map(PinnedWindowEntry.init(savedItem:))
+            for entry in windows {
+                if let combination = entry.combination {
+                    thumbnails[entry.id] = LayoutSavePreview.image(root: combination.root,
+                        size: CGSize(width: 640, height: 640 * combination.height / combination.width))
+                }
+            }
             self.previewStore?.removeExcept(Set(windows.map(\.id)))
         } catch {
             // Keep the unreadable saved data intact. Show the short notice
@@ -285,7 +295,7 @@ final class PinnedWindowsController {
         refreshTask = nil
         previewRestoreTask?.cancel()
         previewRestoreTask = nil
-        thumbnails.removeAll()
+        thumbnails = thumbnails.filter { id, _ in windows.contains { $0.id == id && $0.combination != nil } }
         selectionThumbnail = nil
         pickedWindow?.thumbnail = nil
         render()
@@ -297,7 +307,7 @@ final class PinnedWindowsController {
     }
 
     private var hasActiveShelfDrag: Bool {
-        (pickedWindow.map { !$0.isPlacing } ?? false) || itemDrag != nil || shelfDrag != nil
+        placingCombinationID != nil || (pickedWindow.map { !$0.isPlacing } ?? false) || itemDrag != nil || shelfDrag != nil
     }
 
     private var isHardwareMouseButtonPressed: Bool {
@@ -736,7 +746,85 @@ final class PinnedWindowsController {
     }
 
     private var busyIDs: Set<UUID> {
-        Set(entryTokens.keys).union(restoringIDs)
+        Set(entryTokens.keys).union(restoringIDs).union(placingCombinationID.map { [$0] } ?? [])
+    }
+
+    func saveCombination(_ snapshot: LayoutCombinationSnapshot, preview: Bool = false) async throws {
+        #if DEBUG
+        if preview, !isEnabled { showPreview(count: 0) }
+        #endif
+        guard isEnabled, snapshot.root.isValid,
+              Set(snapshot.windows.keys) == Set(snapshot.root.leafIDs),
+              Set(snapshot.windows.values.map(\.id)).count == snapshot.windows.count,
+              let screen = NSScreen.screens.first(where: { displayID($0) == snapshot.display.id }) else {
+            throw PinnedWindowLaunchError.windowUnavailable
+        }
+        var savedWindows: [UUID: SavedPinnedWindow] = [:]
+        for leaf in snapshot.root.leafIDs {
+            try Task.checkCancellation()
+            guard let window = snapshot.windows[leaf] else { throw PinnedWindowLaunchError.windowUnavailable }
+            savedWindows[leaf] = previewMode ? previewSavedWindow(window) : try await launchService.capture(window)
+        }
+        try Task.checkCancellation()
+        var number = 1
+        while windows.contains(where: { $0.title == settings.text("组合 %@", String(number)) }) { number += 1 }
+        let combination = SavedPinnedCombination(name: settings.text("组合 %@", String(number)),
+            root: snapshot.root, windows: savedWindows, displayID: snapshot.display.id,
+            width: snapshot.display.visibleFrame.width, height: snapshot.display.visibleFrame.height)
+        let entry = PinnedWindowEntry(combination: combination)
+        // Publish the whole item only after every member and the disk write succeed.
+        var entries = windows
+        entries.append(entry)
+        if !previewMode { try settings.savePinnedWindows(entries) }
+        windows = entries
+        combinationWindows[entry.id] = snapshot.windows
+        let image = LayoutSavePreview.image(root: snapshot.root, windows: snapshot.windows,
+            size: CGSize(width: 800, height: 800 * combination.height / combination.width))
+        thumbnails[entry.id] = image
+        savePreview(for: entry.id)
+        if !previewMode { statistics.record() }
+        placingCombinationID = entry.id
+        defer {
+            if placingCombinationID == entry.id {
+                shelf?.cancelPlacement()
+                dragPanel?.orderOut(nil)
+                dragPreview?.removeFromSuperview()
+                dragPreview = nil
+                placingCombinationID = nil
+                render()
+                scheduleCollapseAfterPointerLeaves(at: NSEvent.mouseLocation)
+            }
+        }
+        expand(on: screen)
+        render()
+        shelf?.preparePlacement(entry.id)
+        shelf?.reveal(entry.id)
+        // The shelf slides for 0.22 seconds; start the flight after it settles.
+        try await Task.sleep(for: .milliseconds(240))
+        guard isEnabled, isExpanded, presentedDisplayID == snapshot.display.id,
+              let shelf, let destination = shelf.cardScreenFrame(for: entry.id) else { return }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            shelf.fadeIn(entry.id)
+            try await Task.sleep(for: .milliseconds(150))
+        } else {
+            let source = snapshot.display.visibleFrame
+            let ghost = makePanel(frame: source)
+            ghost.level = .popUpMenu + 1
+            ghost.ignoresMouseEvents = true
+            ghost.identifier = NSUserInterfaceItemIdentifier("multiLayoutCombinationFlight")
+            let preview = PinnedWindowDragPreviewView(frame: CGRect(origin: .zero, size: source.size))
+            preview.update(window: entry, thumbnail: image)
+            dragPanel = ghost
+            dragPreview = preview
+            positionDragPreview(screenFrame: source, pictureFrame: source.insetBy(dx: 12, dy: 12), on: screen)
+            shelf.animatePlacement(preview, to: entry.id, destination: destination, duration: 0.55,
+                renderFrame: { [weak self] glass, picture in
+                    self?.positionDragPreview(screenFrame: glass, pictureFrame: picture, on: screen)
+                }, completion: {})
+            try await Task.sleep(for: .milliseconds(580))
+        }
+        highlight(entry.id)
+        try await Task.sleep(for: .milliseconds(700))
     }
 
     @discardableResult
@@ -808,6 +896,7 @@ final class PinnedWindowsController {
     private func toggleRetention(_ id: UUID) {
         logDiagnostic("retention requested id=\(id) enabled=\(isEnabled) busy=\(busyIDs.contains(id))")
         guard isEnabled, !busyIDs.contains(id), let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        if windows[index].combination != nil { removeEntryFromShelf(id); return }
         if windows[index].isRetained {
             var entries = windows
             if entries[index].isClosed { entries.remove(at: index) }
@@ -878,6 +967,7 @@ final class PinnedWindowsController {
         guard replaceEntries(remaining) else { return }
         cancelEntryTask(id)
         launchService.forget(id)
+        combinationWindows[id] = nil
         thumbnails[id] = nil
         confirmedClosedIDs.remove(id)
         render()
@@ -885,6 +975,7 @@ final class PinnedWindowsController {
 
     private func activateEntry(_ id: UUID) {
         guard isEnabled, !busyIDs.contains(id), let entry = windows.first(where: { $0.id == id }) else { return }
+        if let combination = entry.combination { activateCombination(combination); return }
         if previewMode { highlight(id); return }
         let token = UUID()
         entryTokens[id] = token
@@ -947,6 +1038,88 @@ final class PinnedWindowsController {
                 guard isCurrentEntryTask(id, token: token) else { return }
                 showMessage(error.localizedDescription)
             }
+        }
+        render()
+    }
+
+    private func activateCombination(_ combination: SavedPinnedCombination) {
+        onActivateCombination?()
+        let id = combination.id
+        let token = UUID()
+        entryTokens[id] = token
+        entryTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            defer { finishEntryTask(id, token: token) }
+            let topology = LayoutDisplay.current()
+            guard let target = topology.first(where: { $0.id == combination.displayID })
+                ?? topology.first(where: { $0.id == self.presentedDisplayID }) else { return }
+            let currentWindows = previewMode ? [] : await catalog.load()
+            var choices: [UUID: LayoutWindowChoice] = [:]
+            var updated = combination
+            var firstError: String?
+            for leaf in combination.root.leafIDs {
+                guard isCurrentEntryTask(id, token: token), let saved = combination.windows[leaf] else { return }
+                do {
+                    let window: WindowItem
+                    if previewMode, let cached = combinationWindows[id]?[leaf] {
+                        window = cached
+                    } else {
+                        let cached = combinationWindows[id]?[leaf]
+                        let presence = if let cached { await WindowCatalog.presence(of: cached) }
+                            else { await WindowCatalog.presence(of: saved) }
+                        switch presence {
+                        case .present:
+                            if let cached { window = cached }
+                            else {
+                                let matches = currentWindows.filter { $0.processID == saved.processID && $0.captureID == saved.captureID }
+                                guard matches.count == 1, let match = matches.first else {
+                                    throw PinnedWindowLaunchError.windowUnavailable
+                                }
+                                window = catalog.track(match, preferredID: saved.id)
+                            }
+                        case .closed:
+                            guard let opened = try await launchService.open(saved) else {
+                                throw PinnedWindowLaunchError.windowUnavailable
+                            }
+                            window = catalog.track(opened, preferredID: saved.id)
+                        case .unknown: throw PinnedWindowLaunchError.windowUnavailable
+                        }
+                    }
+                    guard isCurrentEntryTask(id, token: token) else { return }
+                    combinationWindows[id, default: [:]][leaf] = window
+                    var member = PinnedWindowEntry(window: window)
+                    member.saved = saved
+                    updated.windows[leaf] = member.recordForSaving()
+                    let app = NSRunningApplication(processIdentifier: window.processID)
+                    choices[leaf] = LayoutWindowChoice(window: window,
+                        processLaunchDate: app.flatMap(WindowCatalog.processLaunchDate))
+                } catch {
+                    if error is CancellationError { return }
+                    if firstError == nil { firstError = error.localizedDescription }
+                }
+            }
+            guard isCurrentEntryTask(id, token: token) else { return }
+            if let index = windows.firstIndex(where: { $0.id == id }) {
+                windows[index].combination = updated
+                persistWindows()
+            }
+            let requests = combination.requests(using: choices, on: target)
+            guard !requests.isEmpty else {
+                showMessage(firstError ?? "部分窗口未能恢复，请再试一次。")
+                return
+            }
+            let result: LayoutBatchResult
+            if previewMode {
+                result = LayoutBatchResult(outcomes: requests.map {
+                    LayoutWindowOutcome(choice: $0.0, requested: $0.1, actual: $0.1, status: .placed)
+                }, originals: [])
+            } else { result = await combinationLayoutService.apply(requests, topology: topology) }
+            guard isCurrentEntryTask(id, token: token) else { return }
+            if !previewMode { await combinationLayoutService.reveal(result.outcomes, topology: topology) }
+            if choices.count == combination.windows.count && result.outcomes.allSatisfy({ $0.status.isSuccess }) {
+                if !previewMode { statistics.record() }
+                collapse(animated: true)
+            } else { showMessage("部分窗口未能恢复，请再试一次。") }
         }
         render()
     }
@@ -1395,7 +1568,7 @@ final class PinnedWindowsController {
             // Keep the shelf above app windows but below native help windows,
             // so the pin's tooltip remains visible over the shelf.
             panel.level = .popUpMenu
-            panel.title = "Tidest · \(settings.text("窗口停靠"))"
+            panel.title = "Tidest · \(settings.text("停靠窗口"))"
             let view = PinnedWindowsView(frame: CGRect(origin: .zero, size: frame.size))
             view.autoresizingMask = [.width, .height]
             view.onMouseDown = { [weak self] id, point in self?.beginItemDrag(id, at: point) }

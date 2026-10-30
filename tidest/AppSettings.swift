@@ -144,19 +144,38 @@ final class AppSettings: ObservableObject {
     var locale: Locale { Locale(identifier: language.rawValue) }
 
     func loadSavedPinnedWindows() throws -> [SavedPinnedWindow] {
+        try loadSavedPinnedItems().compactMap {
+            if case .window(let window) = $0 { return window }
+            return nil
+        }
+    }
+
+    func loadSavedPinnedItems() throws -> [SavedPinnedItem] {
+        if let data = defaults.data(forKey: "savedPinnedItems.v1") {
+            let items = try JSONDecoder().decode([SavedPinnedItem].self, from: data)
+            guard items.allSatisfy({ item in
+                if case .combination(let combination) = item { return combination.isValid }
+                return true
+            }) else { throw CocoaError(.coderReadCorrupt) }
+            return items
+        }
+        // Migrate the old window-only list on its next successful save.
         guard let data = defaults.data(forKey: "savedPinnedWindows") else { return [] }
-        return try JSONDecoder().decode([SavedPinnedWindow].self, from: data)
+        return try JSONDecoder().decode([SavedPinnedWindow].self, from: data).map(SavedPinnedItem.window)
     }
 
     func savePinnedWindows(_ entries: [PinnedWindowEntry]) throws {
         guard persistChanges else { return }
         // A failed load must not turn a later reorder or removal into an
         // implicit replacement of the unreadable saved list.
-        if let previousData = defaults.data(forKey: "savedPinnedWindows") {
-            _ = try JSONDecoder().decode([SavedPinnedWindow].self, from: previousData)
-        }
-        let data = try JSONEncoder().encode(entries.compactMap { $0.recordForSaving() })
-        defaults.set(data, forKey: "savedPinnedWindows")
+        _ = try loadSavedPinnedItems()
+        let items = entries.compactMap { $0.savedItem() }
+        guard items.allSatisfy({ item in
+            if case .combination(let combination) = item { return combination.isValid }
+            return true
+        }) else { throw CocoaError(.coderInvalidValue) }
+        let data = try JSONEncoder().encode(items)
+        defaults.set(data, forKey: "savedPinnedItems.v1")
     }
 
     func text(_ key: String) -> String {

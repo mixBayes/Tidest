@@ -48,6 +48,7 @@ nonisolated struct PinnedWindowEntry: Identifiable, @unchecked Sendable {
         }
     }
     var saved: SavedPinnedWindow?
+    var combination: SavedPinnedCombination?
     // Closing only clears the activatable window. Keep its last display
     // metadata in memory separately from the saved reopen target.
     private var lastWindow: WindowItem?
@@ -63,19 +64,39 @@ nonisolated struct PinnedWindowEntry: Identifiable, @unchecked Sendable {
         self.saved = saved
     }
 
+    init(combination: SavedPinnedCombination) {
+        id = combination.id
+        self.combination = combination
+    }
+
+    init(savedItem: SavedPinnedItem) {
+        switch savedItem {
+        case .window(let saved): self.init(saved: saved)
+        case .combination(let combination): self.init(combination: combination)
+        }
+    }
+
+    @MainActor
+    func savedItem() -> SavedPinnedItem? {
+        if let combination { return .combination(combination) }
+        return recordForSaving().map(SavedPinnedItem.window)
+    }
+
     var applicationName: String { lastWindow?.applicationName ?? saved?.applicationName ?? "" }
     var allowsThumbnail: Bool {
-        WindowThumbnailCapture.isAllowed(applicationBundleIdentifier:
+        if combination != nil { return true }
+        return WindowThumbnailCapture.isAllowed(applicationBundleIdentifier:
             lastWindow?.applicationBundleIdentifier ?? saved?.applicationBundleIdentifier)
     }
-    var title: String { lastWindow?.title ?? saved?.title ?? "" }
+    var title: String { combination?.name ?? lastWindow?.title ?? saved?.title ?? "" }
     var frame: CGRect {
-        lastWindow?.frame ?? CGRect(x: 0, y: 0, width: saved?.width ?? 0, height: saved?.height ?? 0)
+        if let combination { return CGRect(x: 0, y: 0, width: combination.width, height: combination.height) }
+        return lastWindow?.frame ?? CGRect(x: 0, y: 0, width: saved?.width ?? 0, height: saved?.height ?? 0)
     }
-    var isRetained: Bool { saved.map { $0.retainAfterClose ?? true } ?? false }
+    var isRetained: Bool { combination != nil || (saved.map { $0.retainAfterClose ?? true } ?? false) }
     // Unretained snapshots await reconnection after launch. A missing AX
     // reference alone does not prove closure; confirmed closed items leave.
-    var isClosed: Bool { window == nil && isRetained }
+    var isClosed: Bool { combination == nil && window == nil && isRetained }
 
     @MainActor
     func recordForSaving() -> SavedPinnedWindow? {
@@ -97,6 +118,7 @@ nonisolated struct PinnedWindowEntry: Identifiable, @unchecked Sendable {
 
     @MainActor
     var icon: NSImage? {
+        if combination != nil { return NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: nil) }
         if let lastWindow { return lastWindow.icon }
         guard let saved, let url = URL(string: saved.applicationURL), url.isFileURL else { return nil }
         return NSWorkspace.shared.icon(forFile: url.path)

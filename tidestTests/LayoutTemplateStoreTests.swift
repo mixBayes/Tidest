@@ -138,8 +138,8 @@ final class LayoutTemplateStoreTests: XCTestCase {
         XCTAssertEqual(item.keyEquivalent, "")
         let settings = AppSettings.shared
         let expectedTitle = settings.multiLayoutShortcut.map {
-            settings.text("%@ · %@", settings.text("快速布局"), $0.symbolDisplayName)
-        } ?? settings.text("快速布局")
+            settings.text("%@ · %@", settings.text("组合布局"), $0.symbolDisplayName)
+        } ?? settings.text("组合布局")
         XCTAssertEqual(item.title, expectedTitle)
         XCTAssertFalse(menu.items.contains { $0.action == NSSelectorFromString("undoMultiWindowLayout") })
     }

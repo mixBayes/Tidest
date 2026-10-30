@@ -83,7 +83,7 @@ final class WindowScrollTests: XCTestCase {
         let controller = makeCarouselController()
         controller.showPreview(count: 3)
         defer { controller.stop() }
-        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "Tidest 窗口切换" && $0.isVisible })
+        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "Tidest 切换窗口" && $0.isVisible })
 
         func send(_ event: NSEvent) {
             NSApp.sendEvent(TestScrollEvent(event, window: panel, windowNumber: panel.windowNumber))

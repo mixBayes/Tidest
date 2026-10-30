@@ -191,13 +191,13 @@ final class AppSettingsTests: XCTestCase {
             let original = savedWindow(title: "Original", target: .application)
             let replacement = savedWindow(title: "Preview", target: .application)
             try AppSettings(defaults: defaults).savePinnedWindows([PinnedWindowEntry(saved: original)])
-            let originalData = defaults.data(forKey: "savedPinnedWindows")
+            let originalData = try XCTUnwrap(defaults.data(forKey: "savedPinnedItems.v1"))
             let preview = AppSettings(defaults: defaults, persistChanges: false)
 
             try preview.savePinnedWindows([PinnedWindowEntry(saved: replacement)])
             try preview.savePinnedWindows([])
 
-            XCTAssertEqual(defaults.data(forKey: "savedPinnedWindows"), originalData)
+            XCTAssertEqual(defaults.data(forKey: "savedPinnedItems.v1"), originalData)
             XCTAssertEqual(try AppSettings(defaults: defaults).loadSavedPinnedWindows(), [original])
         }
     }

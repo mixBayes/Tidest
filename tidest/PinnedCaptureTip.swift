@@ -35,7 +35,7 @@ final class PinnedCaptureTip {
         view?.endAttention()
         panel?.setFrame(frame, display: true)
         view?.update(settings: settings, carryingWindow: carryingWindow)
-        panel?.title = settings.text("Tidest 拾取窗口")
+        panel?.title = settings.text("Tidest 停靠窗口")
         // A key panel lets the capture mode own the native cursor and Escape
         // while leaving mouse clicks to the highlighted window and shelf.
         panel?.makeKeyAndOrderFront(nil)

@@ -90,7 +90,7 @@ final class WindowShortcutTests: XCTestCase {
         let controller = SwitcherController(settings: settings)
         controller.showPreview(count: 3)
         defer { controller.stop() }
-        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "Tidest 窗口切换" && $0.isVisible })
+        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "Tidest 切换窗口" && $0.isVisible })
         let initialIndex = controller.selection.index
         let forward = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option, timestamp: 0,
             windowNumber: panel.windowNumber, context: nil, characters: "\u{f702}", charactersIgnoringModifiers: "\u{f702}", isARepeat: false, keyCode: UInt16(kVK_LeftArrow)))

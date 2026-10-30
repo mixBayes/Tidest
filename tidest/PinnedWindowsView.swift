@@ -210,7 +210,7 @@ final class PinnedWindowsView: NSView {
         self.showsRemovalHint = showsRemovalHint
         self.carryingWindow = carryingWindow
         showsMessage = message != nil
-        titleLabel.stringValue = "Tidest · \(settings.text("窗口停靠"))"
+        titleLabel.stringValue = "Tidest · \(settings.text("停靠窗口"))"
         titleLabel.toolTip = titleLabel.stringValue
         countLabel.stringValue = windows.isEmpty ? "" : "\(windows.count)"
         emptyLabel.stringValue = carryingWindow ? settings.text("点击停靠栏放下")
@@ -692,8 +692,15 @@ final class PinnedWindowsView: NSView {
         }
     }
 
+    func preparePlacement(_ id: UUID) {
+        cancelPlacement()
+        placementID = id
+        if let index = windows.firstIndex(where: { $0.id == id }) { rows[index].alphaValue = 0 }
+    }
+
     func animatePlacement(_ preview: PinnedWindowDragPreviewView, to id: UUID,
-                          destination: CGRect, renderFrame: @escaping (CGRect, CGRect) -> Void,
+                          destination: CGRect, duration: TimeInterval = 0.22,
+                          renderFrame: @escaping (CGRect, CGRect) -> Void,
                           completion: @escaping () -> Void) {
         guard let source = preview.screenFrames else { completion(); return }
         cancelPlacement()
@@ -710,7 +717,7 @@ final class PinnedWindowsView: NSView {
         placementTask = Task { @MainActor [weak self, weak preview] in
             while !Task.isCancelled {
                 guard let self, let preview else { return }
-                let t = CGFloat(min(1, (ProcessInfo.processInfo.systemUptime - started) / 0.22))
+                let t = CGFloat(min(1, (ProcessInfo.processInfo.systemUptime - started) / duration))
                 let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 let progress: CGFloat = reducedMotion ? 1 : t
                 let remaining = 1 - progress
@@ -733,6 +740,17 @@ final class PinnedWindowsView: NSView {
                 }
                 do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
             }
+        }
+    }
+
+    func fadeIn(_ id: UUID) {
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        placementID = nil
+        let row = rows[index]
+        row.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            row.animator().alphaValue = 1
         }
     }
 
@@ -1068,7 +1086,7 @@ final class PinnedWindowCardView: NSView {
         retainButton.state = retained ? .on : .off
         retainButton.isEnabled = !busy
         retainButton.toolTip = settings.text(retained
-            ? (window.isClosed ? "取消保留后，此项会从停靠栏移除" : "取消保留后，窗口关闭时会从停靠栏移除")
+            ? (window.isClosed || window.combination != nil ? "取消保留后，此项会从停靠栏移除" : "取消保留后，窗口关闭时会从停靠栏移除")
             : "关闭后仍保留")
         retainButton.setAccessibilityIdentifier("pinnedRetain-\(window.id.uuidString)")
         retainButton.setAccessibilityLabel(settings.text(retained ? "取消保留" : "保留"))
@@ -1076,7 +1094,7 @@ final class PinnedWindowCardView: NSView {
         closedStatus = window.isClosed ? settings.text("已关闭") : ""
         closedIndicator.toolTip = closedStatus.isEmpty ? nil : closedStatus
         closedLabel.stringValue = closedStatus
-        let openHelp = settings.text(window.isClosed ? "点击重新打开" : "打开窗口")
+        let openHelp = settings.text(window.combination != nil ? "恢复这组窗口" : (window.isClosed ? "点击重新打开" : "打开窗口"))
         openButton.toolTip = openHelp
         openButton.setAccessibilityHelp(openHelp)
         openButton.setAccessibilityIdentifier("pinnedOpen-\(window.id.uuidString)")
@@ -1088,7 +1106,7 @@ final class PinnedWindowCardView: NSView {
         contextMenu.autoenablesItems = false
         contextMenu.addItem(remove)
         openButton.menu = contextMenu
-        updateContent(applicationName: window.applicationName, title: window.title, icon: window.icon,
+        updateContent(applicationName: window.combination == nil ? window.applicationName : settings.text("组合布局"), title: window.title, icon: window.icon,
                       frame: window.frame, thumbnail: thumbnail, highlighted: highlighted, dragging: dragging)
         openButton.toolTip = [window.applicationName, window.title, openHelp]
             .filter { !$0.isEmpty }.joined(separator: "\n")

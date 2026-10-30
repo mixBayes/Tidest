@@ -223,7 +223,7 @@ final class SwitcherController: ObservableObject {
         screenWidth = frame.width
         if panel == nil {
             let panel = SwitcherPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            panel.title = settings.text("Tidest 窗口切换")
+            panel.title = settings.text("Tidest 切换窗口")
             panel.isOpaque = false
             panel.backgroundColor = .clear
             panel.hasShadow = false
@@ -235,7 +235,7 @@ final class SwitcherController: ObservableObject {
             panel.contentView = NSHostingView(rootView: SwitcherView(model: self))
             self.panel = panel
         }
-        panel?.title = settings.text("Tidest 窗口切换")
+        panel?.title = settings.text("Tidest 切换窗口")
         panel?.setFrame(frame, display: true)
         isPresented = true
         panel?.makeKeyAndOrderFront(nil)

@@ -175,14 +175,14 @@ struct ContentView: View {
         case .accessibility: "用于切换到你选择的窗口。"
         case .screenCapture: "用于显示窗口预览。停靠预览保存在本机。"
         case .granted: permissions.screenCaptureGranted
-            ? "窗口切换和窗口预览都可以使用。" : "现在可以切换窗口。"
+            ? "现在可以切换窗口并查看预览。" : "现在可以切换窗口。"
         }
     }
 
     private var consequenceKey: String? {
         switch guide {
         case .accessibility: "未开启时，无法使用 Tidest。"
-        case .screenCapture: "未开启时显示应用图标，窗口切换照常使用。"
+        case .screenCapture: "未开启时显示应用图标，仍可照常切换窗口。"
         case .granted: nil
         }
     }

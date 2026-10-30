@@ -10,6 +10,18 @@ struct MultiWindowLayoutView: View {
     @State private var templateName = ""
     @State private var nameError = false
     @State private var duplicateNotice: (id: UUID, layoutID: String, title: String)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var templateFrames: [String: CGRect] = [:]
+    @State private var savedTemplate: LayoutTemplate?
+    @State private var animateTemplate: LayoutTemplate?
+    @State private var highlightedTemplate: UUID?
+    @State private var templateFlight: TemplateFlight?
+
+    private struct TemplateFlight {
+        let root: LayoutRegion
+        var frame: CGRect
+        var opacity: Double = 1
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -19,6 +31,7 @@ struct MultiWindowLayoutView: View {
                 LayoutDraftCanvas(controller: controller, settings: settings)
                     .frame(width: area.width, height: area.height)
                     .offset(x: area.minX, y: area.minY)
+                    .disabled(controller.isSavingCombination)
                 toolbar
                     .frame(width: max(0, area.width - 40), alignment: .leading)
                     .offset(x: area.minX + 20, y: area.minY + 16)
@@ -32,15 +45,52 @@ struct MultiWindowLayoutView: View {
                 feedback
                     .frame(width: max(0, area.width - 40))
                     .offset(x: area.minX + 20, y: area.maxY - 62)
-                if let duplicateNotice {
+                if let duplicateNotice, let saveFrame = templateFrames["multiLayoutSaveTemplate"] {
+                    let noticeWidth = min(360, max(0, area.width - 40))
                     Label(settings.text("该布局已存在：%@", duplicateNotice.title), systemImage: "info.circle")
                         .font(.system(size: 13, weight: .medium))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .background(.regularMaterial, in: Capsule())
-                        .position(x: area.midX, y: area.maxY - 100)
+                        .modifier(LayoutDuplicateFeedback(trigger: duplicateNotice.id, cornerRadius: 24,
+                                                          initialScale: 0.94, peakScale: 1.04))
+                        .frame(width: noticeWidth)
+                        .offset(x: min(max(saveFrame.midX - noticeWidth / 2, area.minX + 20),
+                                       area.maxX - 20 - noticeWidth),
+                                y: saveFrame.maxY + 12)
                         .allowsHitTesting(false)
                         .accessibilityIdentifier("multiLayoutTemplateToast")
                 }
+                if let flight = templateFlight {
+                    LayoutSavePreview(root: flight.root)
+                        .frame(width: flight.frame.width, height: flight.frame.height)
+                        .offset(x: flight.frame.minX, y: flight.frame.minY)
+                        .opacity(flight.opacity)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("multiLayoutTemplateFlight")
+                }
+            }
+            .coordinateSpace(name: "layoutEditor")
+            .onPreferenceChange(LayoutTemplateFrameKey.self) { templateFrames = $0 }
+            .task(id: animateTemplate?.id) {
+                guard let template = animateTemplate else { return }
+                defer { templateFlight = nil; highlightedTemplate = nil }
+                do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+                let identifier = "multiLayoutTemplate-\(template.id)"
+                guard let destination = templateFrames[identifier] else { return }
+                templateFlight = TemplateFlight(root: template.root, frame: reduceMotion ? destination : area,
+                                                opacity: reduceMotion ? 0 : 1)
+                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+                withAnimation(reduceMotion ? .easeOut(duration: 0.12)
+                    : .timingCurve(0.25, 0.75, 0.25, 1, duration: 0.55)) {
+                    templateFlight?.frame = destination
+                    templateFlight?.opacity = 1
+                }
+                do { try await Task.sleep(for: .milliseconds(reduceMotion ? 140 : 570)) } catch { return }
+                templateFlight = nil
+                highlightedTemplate = template.id
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
         .ignoresSafeArea()
@@ -55,7 +105,10 @@ struct MultiWindowLayoutView: View {
             } message: {
                 Text(settings.text("只清除结构变化区域的选择，其他区域保持不变。真实窗口不会移动。"))
             }
-        .sheet(isPresented: $namingTemplate) { templateNaming }
+        .sheet(isPresented: $namingTemplate, onDismiss: {
+            animateTemplate = savedTemplate
+            savedTemplate = nil
+        }) { templateNaming }
         .task(id: duplicateNotice?.id) {
             guard duplicateNotice != nil else { return }
             do { try await Task.sleep(for: .seconds(3)) }
@@ -69,10 +122,10 @@ struct MultiWindowLayoutView: View {
         HStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "rectangle.split.2x1").foregroundStyle(.blue)
-                Text(settings.text("快速布局")).font(.system(size: 14, weight: .semibold)).fixedSize()
+                Text(settings.text("组合布局")).font(.system(size: 14, weight: .semibold)).fixedSize()
                 Divider().frame(height: 18)
                 layoutChoices
-                    .disabled(controller.isApplying || controller.isDraggingRegion || !controller.outcomes.isEmpty)
+                    .disabled(controller.isBusy || controller.isDraggingRegion || !controller.outcomes.isEmpty)
             }
             .frame(height: 30)
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -82,10 +135,21 @@ struct MultiWindowLayoutView: View {
                     controller.resetDraft()
                 }
                 .disabled(!controller.canResetDraft || !controller.outcomes.isEmpty)
-                toolbarButton("保存为模板", icon: "square.and.arrow.down", identifier: "multiLayoutSaveTemplate") {
+                toolbarButton("保存模板", icon: "square.and.arrow.down", identifier: "multiLayoutSaveTemplate") {
                     beginNaming(nil)
                 }
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: LayoutTemplateFrameKey.self,
+                            value: ["multiLayoutSaveTemplate": geometry.frame(in: .named("layoutEditor"))])
+                    }
+                }
                 .disabled(controller.draft == nil || templates.errorKey != nil || !controller.outcomes.isEmpty)
+                toolbarButton("保存当前组合", icon: "pin", identifier: "multiLayoutSaveCombination") {
+                    controller.saveCombination()
+                }
+                .disabled(!controller.canSaveCombination)
+                .help(settings.text(controller.draft?.isComplete == true ? "保存当前组合" : "请先为每个格子选择窗口"))
                 toolbarButton("回退", icon: "arrow.uturn.backward", identifier: "multiLayoutUndoApplication") {
                     controller.undoApplication()
                 }
@@ -93,7 +157,7 @@ struct MultiWindowLayoutView: View {
             }
             .padding(6)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .disabled(controller.isApplying || controller.isDraggingRegion)
+            .disabled(controller.isBusy || controller.isDraggingRegion)
             .fixedSize()
             HStack(spacing: 4) {
                 Button(settings.text("取消")) { controller.dismiss() }
@@ -141,6 +205,8 @@ struct MultiWindowLayoutView: View {
             } else if let message = controller.messageKey ?? templates.errorKey {
                 Text(settings.text(message)).foregroundStyle(.orange)
                     .accessibilityIdentifier("multiLayoutMessage")
+            } else if controller.isSavingCombination {
+                Text(settings.text("正在保存组合…"))
             } else if controller.hasSmallRegions {
                 Text(settings.text("格子太小，请删除格子或拖动分隔线调整大小。" )).foregroundStyle(.orange)
             } else if !controller.sizeConflicts.isEmpty {
@@ -189,10 +255,15 @@ struct MultiWindowLayoutView: View {
             .onChange(of: duplicateNotice?.id) {
                 if let duplicateNotice { proxy.scrollTo(duplicateNotice.layoutID, anchor: .center) }
             }
+            .onChange(of: animateTemplate?.id) {
+                if let animateTemplate { proxy.scrollTo("multiLayoutTemplate-\(animateTemplate.id)", anchor: .center) }
+            }
         }
         .scrollIndicators(.hidden)
         .frame(maxWidth: CGFloat(5 + templates.templates.count) * 38 - 4 + (templates.templates.isEmpty ? 0 : 13))
-        .frame(height: 30)
+        // Leave room for the highlighted tile to expand without unclipping the horizontal list.
+        .frame(height: 42)
+        .padding(.vertical, -6)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(settings.text("布局"))
         .accessibilityIdentifier("multiLayoutLayouts")
@@ -216,12 +287,20 @@ struct MultiWindowLayoutView: View {
         }
         .buttonStyle(LayoutToolbarIconStyle(selected: selected))
         .overlay {
-            if duplicateNotice?.layoutID == identifier {
+            if duplicateNotice?.layoutID == identifier || highlightedTemplate.map({ "multiLayoutTemplate-\($0)" }) == identifier {
                 RoundedRectangle(cornerRadius: 7)
                     .strokeBorder(Color.accentColor, lineWidth: 2)
                     .allowsHitTesting(false)
             }
         }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: LayoutTemplateFrameKey.self,
+                    value: [identifier: geometry.frame(in: .named("layoutEditor"))])
+            }
+        }
+        .modifier(LayoutDuplicateFeedback(trigger: duplicateNotice?.layoutID == identifier ? duplicateNotice?.id : nil,
+                                          cornerRadius: 7))
         .help(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier(identifier)
@@ -259,6 +338,7 @@ struct MultiWindowLayoutView: View {
         renaming = template
         templateName = template?.name ?? templates.suggestedName { settings.text("模板 %@", String($0)) }
         nameError = false
+        savedTemplate = nil
         namingTemplate = true
     }
 
@@ -279,7 +359,7 @@ struct MultiWindowLayoutView: View {
 
     private var templateNaming: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(settings.text(renaming == nil ? "保存为模板" : "重命名")).font(.headline)
+            Text(settings.text(renaming == nil ? "保存模板" : "重命名")).font(.headline)
             TextField(settings.text("模板名称"), text: $templateName)
                 .textFieldStyle(.roundedBorder).accessibilityIdentifier("multiLayoutTemplateName")
             Text(settings.text("模板只保存结构和比例，不保存窗口或显示器。"))
@@ -291,11 +371,67 @@ struct MultiWindowLayoutView: View {
                 Button(settings.text("保存")) {
                     guard let root = renaming?.root ?? controller.draft?.root else { return }
                     if renaming == nil, showDuplicateLayout(for: root) { return }
-                    if templates.save(name: templateName, root: root, replacing: renaming?.id) { namingTemplate = false }
+                    if templates.save(name: templateName, root: root, replacing: renaming?.id) {
+                        if renaming == nil { savedTemplate = templates.matchingTemplate(for: root) }
+                        namingTemplate = false
+                    }
                     else { nameError = true }
                 }.accessibilityIdentifier("multiLayoutConfirmSaveTemplate")
             }
         }.padding(24).frame(width: 400)
+    }
+}
+
+private struct LayoutTemplateFrameKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+@MainActor
+private struct LayoutDuplicateFeedback: ViewModifier {
+    let trigger: UUID?
+    let cornerRadius: CGFloat
+    var initialScale: CGFloat = 1
+    var peakScale: CGFloat = 1.12
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var animationTrigger = false
+
+    private struct Values {
+        var scale: CGFloat = 1
+        var haloProgress: Double = 1
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .keyframeAnimator(initialValue: Values(), trigger: animationTrigger) { content, value in
+                content
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                            .scaleEffect(1 + value.haloProgress * 0.24)
+                            .opacity(reduceMotion ? 0 : (1 - value.haloProgress) * 0.4)
+                            .blur(radius: 0.5)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                    .scaleEffect(reduceMotion ? 1 : value.scale)
+            } keyframes: { _ in
+                KeyframeTrack(\.scale) {
+                    MoveKeyframe(initialScale)
+                    CubicKeyframe(peakScale, duration: 0.1)
+                    SpringKeyframe(1, duration: 0.3, spring: .init(duration: 0.3, bounce: 0.25))
+                }
+                KeyframeTrack(\.haloProgress) {
+                    MoveKeyframe(0)
+                    LinearKeyframe(1, duration: 0.4)
+                }
+            }
+            .onChange(of: trigger, initial: true) { _, value in
+                guard value != nil, !reduceMotion else { return }
+                animationTrigger.toggle()
+            }
     }
 }
 

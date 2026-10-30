@@ -117,7 +117,7 @@ final class tidestUITests: XCTestCase {
         app.launchArguments = ["--ui-preview-switcher", "--ui-preview-thumbnails", "--ui-preview-count=20", "--ui-preview-language=zh-Hans"]
         app.launch()
         XCTAssertTrue(app.staticTexts["selectedWindowTitle"].waitForExistence(timeout: 5))
-        let overlay = app.dialogs["Tidest 窗口切换"]
+        let overlay = app.dialogs["Tidest 切换窗口"]
         XCTAssertTrue(overlay.exists)
         let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "windowCard-"))
         XCTAssertEqual(cards.count, 20)
@@ -220,7 +220,7 @@ final class tidestUITests: XCTestCase {
     @MainActor
     private func assertSelectedCard(_ app: XCUIApplication, index: Int, aspectRatio: Double, baseHeight: CGFloat) {
         let selectedFrame = app.buttons["windowCard-\(index)"].frame
-        let overlay = app.dialogs["Tidest 窗口切换"].frame
+        let overlay = app.dialogs["Tidest 切换窗口"].frame
         XCTAssertEqual(selectedFrame.height, baseHeight, accuracy: 1)
         XCTAssertEqual(selectedFrame.width / selectedFrame.height, aspectRatio, accuracy: 0.01)
         XCTAssertEqual(selectedFrame.midX, overlay.midX, accuracy: 1)

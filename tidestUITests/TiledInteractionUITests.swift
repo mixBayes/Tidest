@@ -11,7 +11,7 @@ final class TiledInteractionUITests: XCTestCase {
         app.launchArguments = ["--ui-preview-switcher", "--ui-preview-tiled", "--ui-preview-thumbnails",
                                "--ui-preview-count=20", "--ui-preview-language=zh-Hans"]
         app.launch()
-        let panel = app.dialogs["Tidest 窗口切换"]
+        let panel = app.dialogs["Tidest 切换窗口"]
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
         app.activate()
 
