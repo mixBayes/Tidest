@@ -287,6 +287,31 @@ private struct LayoutDraftCanvas: View {
                             divider(placement, axis: axis, ratio: ratio, size: geometry.size)
                         }
                     }
+                    // Draw each shared edge once, above its drag target, so the
+                    // same contour can wrap the split button without a seam.
+                    boundary(vertical: false, origin: .zero, length: geometry.size.width, size: geometry.size)
+                    boundary(vertical: false, origin: CGPoint(x: 0, y: geometry.size.height), length: geometry.size.width, size: geometry.size)
+                    boundary(vertical: true, origin: .zero, length: geometry.size.height, size: geometry.size)
+                    boundary(vertical: true, origin: CGPoint(x: geometry.size.width, y: 0), length: geometry.size.height, size: geometry.size)
+                    ForEach(draft.root.placements(), id: \.region.id) { placement in
+                        if case .split(_, let axis, let ratio, _, _) = placement.region {
+                            let rect = placement.frame
+                            let vertical = axis == .columns
+                            boundary(vertical: vertical,
+                                     origin: CGPoint(x: (rect.minX + (vertical ? rect.width * ratio : 0)) * geometry.size.width,
+                                                     y: (rect.minY + (vertical ? 0 : rect.height * ratio)) * geometry.size.height),
+                                     length: vertical ? rect.height * geometry.size.height : rect.width * geometry.size.width,
+                                     size: geometry.size)
+                        }
+                    }
+                }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let point):
+                        let normalized = CGPoint(x: point.x / geometry.size.width, y: point.y / geometry.size.height)
+                        hoveredRegion = draft.root.leaves.first { $0.frame.contains(normalized) }?.region.id
+                    case .ended: hoveredRegion = nil
+                    }
                 }
             }
         }
@@ -301,106 +326,113 @@ private struct LayoutDraftCanvas: View {
         let showingControls = hovered && !controller.choosingWindow
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
+        let compact = height < 240 || width < 240
+        let canDelete = (controller.draft?.root.leafIDs.count ?? 0) > 1
         return ZStack {
             Button { controller.selectRegion(leaf.region.id) } label: {
-                ZStack {
-                    Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
-                    Rectangle().strokeBorder(hovered ? highlight : .white.opacity(0.45), lineWidth: hovered ? 3 : 1)
-                    if height < 180 || width < 240 {
-                        Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1).truncationMode(.tail)
-                            .padding(8).frame(maxWidth: max(0, width - 80))
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        VStack(spacing: 8) {
-                            Text(settings.text("区域 %@", String(index + 1)))
-                                .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.7))
-                            if let choice {
-                                if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36) }
-                                Text(choice.window.applicationName).font(.system(size: 16, weight: .semibold))
-                                Text(choice.window.title).font(.system(size: 12)).lineLimit(2)
-                            } else {
-                                Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
-                                Text(settings.text(controller.draft?.assignments[leaf.region.id] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
-                                    .font(.system(size: 14, weight: .medium))
-                            }
-                            if controller.sizeConflicts.contains(leaf.region.id) {
-                                Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
-                            }
-                        }
-                        .padding(12).frame(maxWidth: min(300, width - 80))
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    }
-                }
-                .contentShape(Rectangle())
+                Rectangle().fill(hovered ? highlight.opacity(0.22) : Color.white.opacity(0.055))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(settings.text("区域 %@", String(index + 1)) + ": " + (choice?.window.title ?? settings.text("选择窗口")))
             .accessibilityIdentifier("multiLayoutRegion-\(index)")
-            ZStack {
-                splitButton(leaf.region.id, axis: .rows, index: index, edge: "top")
-                    .position(x: width / 2, y: 20)
-                splitButton(leaf.region.id, axis: .rows, index: index, edge: "bottom")
-                    .position(x: width / 2, y: height - 20)
-                splitButton(leaf.region.id, axis: .columns, index: index, edge: "left")
-                    .position(x: 20, y: height / 2)
-                splitButton(leaf.region.id, axis: .columns, index: index, edge: "right")
-                    .position(x: width - 20, y: height / 2)
-                if (controller.draft?.root.leafIDs.count ?? 0) > 1 {
-                    // Keep the top row's delete control clear of the toolbar
-                    // and, in short cells, the right-edge split button.
-                    let deleteY: CGFloat = leaf.frame.minY == 0 ? (height < 220 ? height - 20 : 84) : 20
+
+            ZStack(alignment: .topTrailing) {
+                Button { controller.selectRegion(leaf.region.id) } label: {
+                    Group {
+                        if compact {
+                            Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1).truncationMode(.tail)
+                                .padding(.trailing, canDelete ? 24 : 0)
+                                .padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 32)
+                        } else {
+                            VStack(spacing: 8) {
+                                Text(settings.text("区域 %@", String(index + 1)))
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.7)).padding(.horizontal, 24)
+                                if let choice {
+                                    if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36) }
+                                    Text(choice.window.applicationName).font(.system(size: 16, weight: .semibold))
+                                    Text(choice.window.title).font(.system(size: 12)).lineLimit(2)
+                                } else {
+                                    Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
+                                    Text(settings.text(controller.draft?.assignments[leaf.region.id] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
+                                        .font(.system(size: 14, weight: .medium))
+                                }
+                                if controller.sizeConflicts.contains(leaf.region.id) {
+                                    Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
+                                }
+                            }
+                            .padding(12).frame(maxWidth: .infinity)
+                        }
+                    }
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: compact ? 8 : 14))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).focusable(false).accessibilityHidden(true)
+                if canDelete {
                     Button { controller.deleteRegion(leaf.region.id) } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 13, weight: .medium))
-                            .frame(width: 30, height: 30)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.35)))
+                            .frame(width: 28, height: 28).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help(settings.text("删除格子"))
                     .accessibilityLabel(settings.text("删除格子"))
                     .accessibilityIdentifier("multiLayoutDelete-\(index)")
-                    .position(x: width - 20, y: deleteY)
+                    .padding(compact ? 2 : 5)
+                    .opacity(showingControls ? 1 : 0)
+                    .allowsHitTesting(showingControls)
+                    .accessibilityHidden(!showingControls)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
                 }
             }
-            .opacity(showingControls ? 1 : 0)
-            .allowsHitTesting(showingControls)
-            .accessibilityHidden(!showingControls)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
+            .frame(width: min(300, max(0, width - 80)))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("multiLayoutCard-\(index)")
         }
         .frame(width: width, height: height)
         .disabled(controller.isApplying || !controller.outcomes.isEmpty)
-        .onHover { inside in
-            if inside { hoveredRegion = leaf.region.id }
-            else if hoveredRegion == leaf.region.id { hoveredRegion = nil }
-        }
         .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
     }
 
-    private func splitButton(_ id: UUID, axis: LayoutSplitAxis, index: Int, edge: String) -> some View {
-        Button { controller.splitRegion(id, axis: axis) } label: {
-            Image(systemName: axis == .rows ? "rectangle.split.1x2" : "rectangle.split.2x1")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 30, height: 30)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.35)))
+    private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> some View {
+        LayoutBoundaryView(vertical: vertical, length: length,
+                           tab: boundaryTab(vertical: vertical, origin: origin, length: length, size: size),
+                           showsControls: !controller.choosingWindow, highlight: highlight,
+                           label: settings.text(vertical ? "垂直分裂" : "水平分裂")) { id in
+            controller.splitRegion(id, axis: vertical ? .columns : .rows)
         }
-        .buttonStyle(.plain)
-        .help(settings.text(axis == .rows ? "水平分裂" : "垂直分裂"))
-        .accessibilityLabel(settings.text(axis == .rows ? "水平分裂" : "垂直分裂"))
-        .accessibilityIdentifier("multiLayoutSplit-\(index)-\(edge)")
+        .offset(x: origin.x - (vertical ? 32 : 0), y: origin.y - (vertical ? 0 : 32))
+    }
+
+    private func boundaryTab(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> LayoutBoundaryView.Tab? {
+        guard !controller.isApplying, controller.outcomes.isEmpty,
+              let leaves = controller.draft?.root.leaves,
+              let index = leaves.firstIndex(where: { $0.region.id == hoveredRegion }) else { return nil }
+        let leaf = leaves[index]
+        let rect = CGRect(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height,
+                          width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
+        let line = vertical ? origin.x : origin.y
+        let near = vertical ? rect.minX : rect.minY
+        let far = vertical ? rect.maxX : rect.maxY
+        let start = vertical ? rect.minY - origin.y : rect.minX - origin.x
+        let end = vertical ? rect.maxY - origin.y : rect.maxX - origin.x
+        guard start >= -0.5, end <= length + 0.5 else { return nil }
+        let inward: CGFloat
+        if abs(line - near) < 0.5 { inward = 1 }
+        else if abs(line - far) < 0.5 { inward = -1 }
+        else { return nil }
+        return LayoutBoundaryView.Tab(regionID: leaf.region.id, index: index,
+                                      edge: vertical ? (inward > 0 ? "left" : "right") : (inward > 0 ? "top" : "bottom"),
+                                      start: start, end: end, inward: inward)
     }
 
     private func divider(_ placement: LayoutRegion.Placement, axis: LayoutSplitAxis, ratio: Double, size: CGSize) -> some View {
         let rect = placement.frame
         let vertical = axis == .columns
-        return ZStack {
-            Rectangle().fill(Color.white.opacity(0.001))
-            Rectangle().fill(.white.opacity(0.6))
-                .frame(width: vertical ? 2 : nil, height: vertical ? nil : 2)
-        }
+        return Rectangle().fill(Color.white.opacity(0.001))
         .frame(width: vertical ? 12 : rect.width * size.width,
                height: vertical ? rect.height * size.height : 12)
         .contentShape(Rectangle())
@@ -427,6 +459,116 @@ private struct LayoutDraftCanvas: View {
             guard !controller.isApplying, controller.outcomes.isEmpty else { return }
             controller.resize(placement.region.id, ratio: ratio + (direction == .increment ? 0.05 : -0.05), ended: true)
         }
+    }
+}
+
+@MainActor
+private struct LayoutBoundaryView: View {
+    struct Tab: Equatable {
+        let regionID: UUID
+        let index: Int
+        let edge: String
+        let start: CGFloat
+        let end: CGFloat
+        let inward: CGFloat
+        var center: CGFloat { (start + end) / 2 }
+    }
+
+    let vertical: Bool
+    let length: CGFloat
+    let tab: Tab?
+    let showsControls: Bool
+    let highlight: Color
+    let label: String
+    let split: (UUID) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var previousTab: Tab?
+
+    var body: some View {
+        // Retain the attachment point while fading out, so the edge flattens
+        // where the button was instead of jumping back to the line's midpoint.
+        let attachment = tab ?? previousTab
+        let visible = tab != nil && showsControls
+        let center = attachment?.center ?? length / 2
+        let depth = visible ? (attachment?.inward ?? 1) * 32 : 0
+        let animation = reduceMotion ? nil : Animation.easeInOut(duration: 0.15)
+        let contour = LayoutBoundaryContour(vertical: vertical, center: center, depth: depth)
+        ZStack(alignment: .topLeading) {
+            LayoutBoundaryContour(vertical: vertical, center: center, depth: depth, tabOnly: true)
+                .fill(.regularMaterial)
+                .allowsHitTesting(false)
+                .animation(animation, value: depth)
+            contour.stroke(.white.opacity(0.45), lineWidth: 1)
+                .allowsHitTesting(false)
+                .animation(animation, value: depth)
+            LayoutBoundaryContour(vertical: vertical, center: center, depth: depth,
+                                  segment: attachment.map { $0.start...$0.end })
+                .stroke(highlight, lineWidth: 2)
+                .opacity(tab == nil ? 0 : 1)
+                .allowsHitTesting(false)
+                .animation(animation, value: depth)
+                .animation(animation, value: tab != nil)
+            if let attachment {
+                Button { split(attachment.regionID) } label: {
+                    Image(systemName: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 28, height: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(label).accessibilityLabel(label)
+                .accessibilityIdentifier("multiLayoutSplit-\(attachment.index)-\(attachment.edge)")
+                .opacity(visible ? 1 : 0)
+                .animation(animation, value: visible)
+                // Keep the hit target still while the surrounding edge grows.
+                .position(x: vertical ? 32 + attachment.inward * 16 : center,
+                          y: vertical ? center : 32 + attachment.inward * 16)
+                .allowsHitTesting(visible)
+                .accessibilityHidden(!visible)
+            }
+        }
+        .frame(width: vertical ? 64 : length, height: vertical ? length : 64)
+        .onChange(of: tab, initial: true) { _, value in
+            if let value { previousTab = value }
+        }
+    }
+}
+
+/// A straight edge that bends inward around a split control. Only the fill
+/// closes along the baseline; the stroke follows the bend with no line behind it.
+private struct LayoutBoundaryContour: Shape {
+    var vertical: Bool
+    var center: CGFloat
+    var depth: CGFloat
+    var segment: ClosedRange<CGFloat>?
+    var tabOnly = false
+
+    var animatableData: CGFloat {
+        get { depth }
+        set { depth = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        func point(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
+            vertical ? CGPoint(x: 32 + across, y: along) : CGPoint(x: along, y: 32 + across)
+        }
+        let length = vertical ? rect.height : rect.width
+        let start = tabOnly ? center - 38 : (segment?.lowerBound ?? 0)
+        let end = tabOnly ? center + 38 : (segment?.upperBound ?? length)
+        var path = Path()
+        path.move(to: point(start, 0))
+        if depth == 0 {
+            path.addLine(to: point(end, 0))
+            return path
+        }
+        path.addLine(to: point(center - 38, 0))
+        path.addCurve(to: point(center - 20, depth),
+                      control1: point(center - 26, 0), control2: point(center - 30, depth))
+        path.addLine(to: point(center + 20, depth))
+        path.addCurve(to: point(center + 38, 0),
+                      control1: point(center + 30, depth), control2: point(center + 26, 0))
+        path.addLine(to: point(end, 0))
+        if tabOnly { path.closeSubpath() }
+        return path
     }
 }
 

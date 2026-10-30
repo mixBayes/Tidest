@@ -52,8 +52,12 @@ final class MultiWindowLayoutUITests: XCTestCase {
         assign(region: 0, windowIndex: 0, in: app)
         assign(region: 1, windowIndex: 1, in: app)
         app.buttons["multiLayoutRegion-0"].hover()
-        app.buttons["multiLayoutDelete-0"].click()
+        let delete = app.buttons["multiLayoutDelete-0"]
+        let card = app.descendants(matching: .any)["multiLayoutCard-0"].firstMatch
+        XCTAssertTrue(card.frame.contains(delete.frame), "Delete must stay inside the central card")
+        delete.click()
         XCTAssertEqual(regions(app).count, 1)
+        XCTAssertFalse(app.textFields["multiLayoutWindowSearch"].exists)
         XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 2"))
         XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
         app.buttons["multiLayoutRegion-0"].hover()
@@ -63,6 +67,23 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 1"))
         XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))
         XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+    }
+
+    @MainActor
+    func testSharedEdgeButtonSplitsOnlyItsHoveredRegion() {
+        let app = launch()
+        let originalLeft = app.buttons["multiLayoutRegion-0"].frame
+        let originalRight = app.buttons["multiLayoutRegion-1"].frame
+        app.buttons["multiLayoutRegion-1"].hover()
+        app.buttons["multiLayoutSplit-1-left"].click()
+        XCTAssertEqual(regions(app).count, 3)
+        XCTAssertEqual(app.buttons["multiLayoutRegion-0"].frame, originalLeft)
+        let middle = app.buttons["multiLayoutRegion-1"].frame
+        let right = app.buttons["multiLayoutRegion-2"].frame
+        XCTAssertEqual(middle.minX, originalRight.minX, accuracy: 1)
+        XCTAssertEqual(middle.maxX, right.minX, accuracy: 1)
+        XCTAssertEqual(right.maxX, originalRight.maxX, accuracy: 1)
+        XCTAssertFalse(app.textFields["multiLayoutWindowSearch"].exists)
     }
 
     @MainActor
