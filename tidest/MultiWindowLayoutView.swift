@@ -272,8 +272,13 @@ private struct LayoutDraftCanvas: View {
     @ObservedObject var controller: MultiWindowLayoutController
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hoveredRegion: UUID?
+    @State private var pointer: CGPoint?
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+
+    private var hoveredRegion: UUID? {
+        guard let pointer, !controller.isApplying, controller.outcomes.isEmpty else { return nil }
+        return controller.draft?.root.leaves.first { $0.frame.contains(pointer) }?.region.id
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -287,8 +292,8 @@ private struct LayoutDraftCanvas: View {
                             divider(placement, axis: axis, ratio: ratio, size: geometry.size)
                         }
                     }
-                    // Draw each shared edge once, above its drag target, so the
-                    // same contour can wrap the split button without a seam.
+                    // Shared edges keep one continuous baseline. Split controls
+                    // grow inward from it only when the pointer approaches a guide.
                     boundary(vertical: false, origin: .zero, length: geometry.size.width, size: geometry.size)
                     boundary(vertical: false, origin: CGPoint(x: 0, y: geometry.size.height), length: geometry.size.width, size: geometry.size)
                     boundary(vertical: true, origin: .zero, length: geometry.size.height, size: geometry.size)
@@ -308,9 +313,8 @@ private struct LayoutDraftCanvas: View {
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let point):
-                        let normalized = CGPoint(x: point.x / geometry.size.width, y: point.y / geometry.size.height)
-                        hoveredRegion = draft.root.leaves.first { $0.frame.contains(normalized) }?.region.id
-                    case .ended: hoveredRegion = nil
+                        pointer = CGPoint(x: point.x / geometry.size.width, y: point.y / geometry.size.height)
+                    case .ended: pointer = nil
                     }
                 }
             }
@@ -399,34 +403,35 @@ private struct LayoutDraftCanvas: View {
 
     private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> some View {
         LayoutBoundaryView(vertical: vertical, length: length,
-                           tab: boundaryTab(vertical: vertical, origin: origin, length: length, size: size),
-                           showsControls: !controller.choosingWindow, highlight: highlight,
+                           tabs: boundaryTabs(vertical: vertical, origin: origin, length: length, size: size),
+                           hoveredRegion: hoveredRegion,
+                           pointer: pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) },
+                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty,
+                           highlight: highlight,
                            label: settings.text(vertical ? "垂直分裂" : "水平分裂")) { id in
             controller.splitRegion(id, axis: vertical ? .columns : .rows)
         }
         .offset(x: origin.x - (vertical ? 32 : 0), y: origin.y - (vertical ? 0 : 32))
     }
 
-    private func boundaryTab(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> LayoutBoundaryView.Tab? {
-        guard !controller.isApplying, controller.outcomes.isEmpty,
-              let leaves = controller.draft?.root.leaves,
-              let index = leaves.firstIndex(where: { $0.region.id == hoveredRegion }) else { return nil }
-        let leaf = leaves[index]
-        let rect = CGRect(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height,
-                          width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
-        let line = vertical ? origin.x : origin.y
-        let near = vertical ? rect.minX : rect.minY
-        let far = vertical ? rect.maxX : rect.maxY
-        let start = vertical ? rect.minY - origin.y : rect.minX - origin.x
-        let end = vertical ? rect.maxY - origin.y : rect.maxX - origin.x
-        guard start >= -0.5, end <= length + 0.5 else { return nil }
-        let inward: CGFloat
-        if abs(line - near) < 0.5 { inward = 1 }
-        else if abs(line - far) < 0.5 { inward = -1 }
-        else { return nil }
-        return LayoutBoundaryView.Tab(regionID: leaf.region.id, index: index,
-                                      edge: vertical ? (inward > 0 ? "left" : "right") : (inward > 0 ? "top" : "bottom"),
-                                      start: start, end: end, inward: inward)
+    private func boundaryTabs(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize) -> [LayoutBoundaryView.Tab] {
+        (controller.draft?.root.leaves ?? []).enumerated().compactMap { index, leaf in
+            let rect = CGRect(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height,
+                              width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
+            let line = vertical ? origin.x : origin.y
+            let near = vertical ? rect.minX : rect.minY
+            let far = vertical ? rect.maxX : rect.maxY
+            let start = vertical ? rect.minY - origin.y : rect.minX - origin.x
+            let end = vertical ? rect.maxY - origin.y : rect.maxX - origin.x
+            guard start >= -0.5, end <= length + 0.5 else { return nil }
+            let inward: CGFloat
+            if abs(line - near) < 0.5 { inward = 1 }
+            else if abs(line - far) < 0.5 { inward = -1 }
+            else { return nil }
+            return LayoutBoundaryView.Tab(regionID: leaf.region.id, index: index,
+                                          edge: vertical ? (inward > 0 ? "left" : "right") : (inward > 0 ? "top" : "bottom"),
+                                          start: start, end: end, inward: inward)
+        }
     }
 
     private func divider(_ placement: LayoutRegion.Placement, axis: LayoutSplitAxis, ratio: Double, size: CGSize) -> some View {
@@ -476,7 +481,9 @@ private struct LayoutBoundaryView: View {
 
     let vertical: Bool
     let length: CGFloat
-    let tab: Tab?
+    let tabs: [Tab]
+    let hoveredRegion: UUID?
+    let pointer: CGPoint?
     let showsControls: Bool
     let highlight: Color
     let label: String
@@ -484,44 +491,72 @@ private struct LayoutBoundaryView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previousTab: Tab?
 
+    private var guideCenters: [CGFloat] {
+        // Both sides of a shared edge may have the same midpoint.
+        tabs.reduce(into: []) { centers, tab in
+            if !centers.contains(where: { abs($0 - tab.center) < 0.5 }) { centers.append(tab.center) }
+        }
+    }
+
+    private var activeTab: Tab? {
+        guard showsControls, let pointer,
+              let tab = tabs.first(where: { $0.regionID == hoveredRegion }) else { return nil }
+        let along = vertical ? pointer.y : pointer.x
+        let across = vertical ? pointer.x : pointer.y
+        // This radius covers the entire opened control while keeping the
+        // activation areas of a region's four guides separate, even in small cells.
+        return hypot(along - tab.center, across) <= 44 ? tab : nil
+    }
+
     var body: some View {
+        let tab = activeTab
+        let hoveredTab = tabs.first { $0.regionID == hoveredRegion }
         // Retain the attachment point while fading out, so the edge flattens
         // where the button was instead of jumping back to the line's midpoint.
         let attachment = tab ?? previousTab
-        let visible = tab != nil && showsControls
+        let visible = tab != nil
         let center = attachment?.center ?? length / 2
-        let depth = visible ? (attachment?.inward ?? 1) * 32 : 0
-        let animation = reduceMotion ? nil : Animation.easeInOut(duration: 0.15)
-        let contour = LayoutBoundaryContour(vertical: vertical, center: center, depth: depth)
+        let depth = visible ? (attachment?.inward ?? 1) * 34 : 0
+        let animation = reduceMotion ? nil : Animation.easeInOut(duration: 0.18)
+        let bulge = LayoutBoundaryContour(vertical: vertical, center: center, depth: depth, tabOnly: true)
         ZStack(alignment: .topLeading) {
-            LayoutBoundaryContour(vertical: vertical, center: center, depth: depth, tabOnly: true)
-                .fill(.regularMaterial)
+            bulge.fill(.regularMaterial)
                 .allowsHitTesting(false)
                 .animation(animation, value: depth)
-            contour.stroke(.white.opacity(0.45), lineWidth: 1)
+            // The original straight border stays visible behind the new curve.
+            LayoutBoundaryContour(vertical: vertical, center: center, depth: 0)
+                .stroke(.white.opacity(0.45), lineWidth: 1)
                 .allowsHitTesting(false)
-                .animation(animation, value: depth)
-            LayoutBoundaryContour(vertical: vertical, center: center, depth: depth,
-                                  segment: attachment.map { $0.start...$0.end })
+            LayoutBoundaryContour(vertical: vertical, center: center, depth: 0,
+                                  segment: hoveredTab.map { $0.start...$0.end })
                 .stroke(highlight, lineWidth: 2)
-                .opacity(tab == nil ? 0 : 1)
+                .opacity(hoveredTab == nil ? 0 : 1)
+                .allowsHitTesting(false)
+
+            ForEach(guideCenters, id: \.self) { midpoint in
+                guide(at: midpoint)
+                    .opacity(showsControls && !(visible && abs(midpoint - center) < 0.5) ? 1 : 0)
+                    .animation(animation, value: visible)
+            }
+            bulge.stroke(highlight, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .opacity(visible ? 1 : 0)
                 .allowsHitTesting(false)
                 .animation(animation, value: depth)
-                .animation(animation, value: tab != nil)
+                .animation(animation, value: visible)
             if let attachment {
                 Button { split(attachment.regionID) } label: {
                     Image(systemName: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2")
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 28, height: 28).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LayoutSplitButtonStyle(vertical: vertical, inward: attachment.inward, highlight: highlight))
                 .help(label).accessibilityLabel(label)
                 .accessibilityIdentifier("multiLayoutSplit-\(attachment.index)-\(attachment.edge)")
                 .opacity(visible ? 1 : 0)
                 .animation(animation, value: visible)
                 // Keep the hit target still while the surrounding edge grows.
-                .position(x: vertical ? 32 + attachment.inward * 16 : center,
-                          y: vertical ? center : 32 + attachment.inward * 16)
+                .position(x: vertical ? 32 + attachment.inward * 17 : center,
+                          y: vertical ? center : 32 + attachment.inward * 17)
                 .allowsHitTesting(visible)
                 .accessibilityHidden(!visible)
             }
@@ -531,10 +566,47 @@ private struct LayoutBoundaryView: View {
             if let value { previousTab = value }
         }
     }
+
+    private func guide(at midpoint: CGFloat) -> some View {
+        let glow = LinearGradient(colors: [highlight.opacity(0), highlight, highlight.opacity(0)],
+                                  startPoint: vertical ? .top : .leading, endPoint: vertical ? .bottom : .trailing)
+        return ZStack {
+            Capsule().fill(glow).frame(width: vertical ? 8 : 42, height: vertical ? 42 : 8).blur(radius: 5)
+            Capsule().fill(glow).frame(width: vertical ? 2 : 30, height: vertical ? 30 : 2)
+        }
+        .position(x: vertical ? 32 : midpoint, y: vertical ? midpoint : 32)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
 }
 
-/// A straight edge that bends inward around a split control. Only the fill
-/// closes along the baseline; the stroke follows the bend with no line behind it.
+@MainActor
+private struct LayoutSplitButtonStyle: ButtonStyle {
+    let vertical: Bool
+    let inward: CGFloat
+    let highlight: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white.opacity(hovered ? 1 : 0.78))
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .shadow(color: highlight.opacity(hovered ? 0.65 : 0), radius: 4)
+            .background {
+                LayoutBoundaryContour(vertical: vertical, center: 44, depth: inward * 34, tabOnly: true)
+                    .fill(highlight.opacity(configuration.isPressed ? 0.44 : (hovered ? 0.24 : 0)))
+                    .frame(width: vertical ? 64 : 88, height: vertical ? 88 : 64)
+                    .offset(x: vertical ? -inward * 17 : 0, y: vertical ? 0 : -inward * 17)
+                    .allowsHitTesting(false)
+            }
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+/// The original straight edge and an optional, smoothly rounded inward bulge.
 private struct LayoutBoundaryContour: Shape {
     var vertical: Bool
     var center: CGFloat
@@ -552,20 +624,19 @@ private struct LayoutBoundaryContour: Shape {
             vertical ? CGPoint(x: 32 + across, y: along) : CGPoint(x: along, y: 32 + across)
         }
         let length = vertical ? rect.height : rect.width
-        let start = tabOnly ? center - 38 : (segment?.lowerBound ?? 0)
-        let end = tabOnly ? center + 38 : (segment?.upperBound ?? length)
+        let start = tabOnly ? center - 44 : (segment?.lowerBound ?? 0)
+        let end = tabOnly ? center + 44 : (segment?.upperBound ?? length)
         var path = Path()
         path.move(to: point(start, 0))
         if depth == 0 {
             path.addLine(to: point(end, 0))
             return path
         }
-        path.addLine(to: point(center - 38, 0))
-        path.addCurve(to: point(center - 20, depth),
-                      control1: point(center - 26, 0), control2: point(center - 30, depth))
-        path.addLine(to: point(center + 20, depth))
-        path.addCurve(to: point(center + 38, 0),
-                      control1: point(center + 30, depth), control2: point(center + 26, 0))
+        path.addLine(to: point(center - 44, 0))
+        path.addCurve(to: point(center, depth),
+                      control1: point(center - 22, 0), control2: point(center - 28, depth))
+        path.addCurve(to: point(center + 44, 0),
+                      control1: point(center + 28, depth), control2: point(center + 22, 0))
         path.addLine(to: point(end, 0))
         if tabOnly { path.closeSubpath() }
         return path

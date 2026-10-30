@@ -13,11 +13,9 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertFalse(app.buttons["multiLayoutApply"].isEnabled)
         app.buttons["multiLayoutBlank"].click()
         XCTAssertEqual(regions(app).count, 1)
-        app.buttons["multiLayoutRegion-0"].hover()
-        app.buttons["multiLayoutSplit-0-left"].click()
+        revealSplit(region: 0, edge: "left", in: app).click()
         XCTAssertEqual(regions(app).count, 2)
-        app.buttons["multiLayoutRegion-0"].hover()
-        app.buttons["multiLayoutSplit-0-bottom"].click()
+        revealSplit(region: 0, edge: "bottom", in: app).click()
         XCTAssertEqual(regions(app).count, 3)
         moreAction("multiLayoutMerge", in: app)
         XCTAssertEqual(regions(app).count, 2)
@@ -32,7 +30,8 @@ final class MultiWindowLayoutUITests: XCTestCase {
         let right = app.buttons["multiLayoutRegion-1"]
         left.hover()
         XCTAssertTrue(app.buttons["multiLayoutDelete-0"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["multiLayoutSplit-0-left"].isHittable)
+        XCTAssertEqual(splitButtons(app).count, 0)
+        XCTAssertTrue(revealSplit(region: 0, edge: "left", in: app).isHittable)
         left.click()
         XCTAssertTrue(app.textFields["multiLayoutWindowSearch"].waitForExistence(timeout: 2))
         app.typeKey(.escape, modifierFlags: [])
@@ -40,10 +39,26 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertTrue(app.buttons["multiLayoutDelete-1"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.buttons["multiLayoutDelete-0"].exists)
         XCTAssertFalse(app.buttons["multiLayoutSplit-0-left"].exists)
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "hover-right-region"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        XCTAssertEqual(splitButtons(app).count, 0)
+        keepScreenshot("edge-guides-buttons-hidden", in: app)
+    }
+
+    @MainActor
+    func testOnlyNearbyEdgeButtonAppearsAndRetractsWhenLeaving() {
+        let app = launch()
+        for edge in ["left", "top", "right", "bottom"] {
+            let button = revealSplit(region: 1, edge: edge, in: app)
+            XCTAssertEqual(splitButtons(app).count, 1)
+            XCTAssertTrue(button.isHittable)
+            if edge == "left" {
+                keepScreenshot("rounded-button-nearby", in: app)
+                button.hover()
+                XCTAssertTrue(button.exists)
+                keepScreenshot("rounded-button-highlighted", in: app)
+            }
+            app.buttons["multiLayoutRegion-1"].hover()
+            XCTAssertEqual(splitButtons(app).count, 0)
+        }
     }
 
     @MainActor
@@ -74,8 +89,7 @@ final class MultiWindowLayoutUITests: XCTestCase {
         let app = launch()
         let originalLeft = app.buttons["multiLayoutRegion-0"].frame
         let originalRight = app.buttons["multiLayoutRegion-1"].frame
-        app.buttons["multiLayoutRegion-1"].hover()
-        app.buttons["multiLayoutSplit-1-left"].click()
+        revealSplit(region: 1, edge: "left", in: app).click()
         XCTAssertEqual(regions(app).count, 3)
         XCTAssertEqual(app.buttons["multiLayoutRegion-0"].frame, originalLeft)
         let middle = app.buttons["multiLayoutRegion-1"].frame
@@ -196,6 +210,36 @@ final class MultiWindowLayoutUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["窗口尺寸受限，请调整区域后重试。"].exists)
         app.buttons["multiLayoutRetry"].click()
         XCTAssertFalse(app.buttons["multiLayoutApply"].waitForExistence(timeout: 1))
+    }
+
+    @MainActor
+    private func revealSplit(region: Int, edge: String, in app: XCUIApplication) -> XCUIElement {
+        let cell = app.buttons["multiLayoutRegion-\(region)"]
+        let anchor: CGVector
+        let inset: CGVector
+        switch edge {
+        case "left": anchor = CGVector(dx: 0, dy: 0.5); inset = CGVector(dx: 36, dy: 0)
+        case "right": anchor = CGVector(dx: 1, dy: 0.5); inset = CGVector(dx: -36, dy: 0)
+        case "top": anchor = CGVector(dx: 0.5, dy: 0); inset = CGVector(dx: 0, dy: 36)
+        default: anchor = CGVector(dx: 0.5, dy: 1); inset = CGVector(dx: 0, dy: -36)
+        }
+        cell.coordinate(withNormalizedOffset: anchor).withOffset(inset).hover()
+        let button = app.buttons["multiLayoutSplit-\(region)-\(edge)"]
+        XCTAssertTrue(button.waitForExistence(timeout: 2))
+        return button
+    }
+
+    @MainActor
+    private func splitButtons(_ app: XCUIApplication) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "multiLayoutSplit-"))
+    }
+
+    @MainActor
+    private func keepScreenshot(_ name: String, in app: XCUIApplication) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     @MainActor
