@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import QuartzCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,9 +14,12 @@ final class QuickLayoutController {
     private let catalog = WindowCatalog()
     private var panel: QuickLayoutPanel?
     private var highlights: [QuickLayoutPassivePanel] = []
+    private var diagramFrames: [QuickLayout: CGRect] = [:]
+    private var placementHighlight: PlacementHighlight?
     private var target: LayoutTarget?
     private var layoutArea = CGRect.zero
     private var visibleScreenFrame = CGRect.zero
+    private var primaryScreenTop: CGFloat = 0
     private var sessionID = UUID()
     private var targetTask: Task<Void, Never>?
     private var layoutTasks: [UUID: (window: WindowItem, task: Task<Void, Never>)] = [:]
@@ -48,6 +52,7 @@ final class QuickLayoutController {
         guard let primary = screens.first,
               let screen = screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main else { return }
         let primaryScreenTop = primary.frame.maxY
+        self.primaryScreenTop = primaryScreenTop
         let screenFrames = screens.map(\.frame)
         let screenBounds = screenFrames.map { Self.axRect($0, primaryScreenTop: primaryScreenTop) }
         let point = QuickLayoutGeometry.axPoint(from: pointer, primaryScreenTop: primaryScreenTop)
@@ -56,6 +61,7 @@ final class QuickLayoutController {
         previewMode = false
         feedbackID = UUID()
         clearTip()
+        clearPlacementHighlight()
         sessionID = UUID()
         let session = sessionID
         isPresented = true
@@ -97,6 +103,8 @@ final class QuickLayoutController {
         panel?.orderOut(nil)
         for highlight in highlights { highlight.orderOut(nil) }
         highlights = []
+        diagramFrames = [:]
+        clearPlacementHighlight()
         clearTip()
     }
 
@@ -108,20 +116,34 @@ final class QuickLayoutController {
         catalog.stop()
     }
 
-    private func choose(_ layout: QuickLayout) {
+    func choose(_ layout: QuickLayout) {
         guard isPresented, let target else { return }
         let area = layoutArea
         let screenFrame = visibleScreenFrame
         let preview = previewMode
         let constrained = previewConstrained
+        let top = primaryScreenTop
+        // SwiftUI measures from the panel's top-left; the overlay uses AppKit's
+        // bottom-left screen coordinates. Capture this before dismissing it.
+        let source = diagramFrames[layout].flatMap { block in
+            panel.map { panel in
+                CGRect(x: panel.frame.minX + block.minX, y: panel.frame.maxY - block.maxY,
+                       width: block.width, height: block.height)
+            }
+        }
+        let destination = QuickLayoutGeometry.appKitRect(from: layout.frame(in: area), primaryScreenTop: top)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         dismiss()
         let feedback = UUID()
         feedbackID = feedback
-        if preview {
-            if constrained {
-                showTip("受窗口大小限制，已尽量按所选位置排列。", in: screenFrame, feedback: feedback)
-            }
-            return
+        let highlight = source.map {
+            PlacementHighlight(source: reduceMotion ? destination : $0, in: screenFrame)
+        }
+        placementHighlight = highlight
+        // Start the visual transition and AX placement together. Neither one
+        // should delay the other, and both must finish before fading out.
+        let flight = Task {
+            await highlight?.move(to: destination, duration: reduceMotion ? 0 : 0.3)
         }
         let operation = UUID()
         let previousTasks = layoutTasks.values.filter {
@@ -134,18 +156,41 @@ final class QuickLayoutController {
             // Wait for it before sending a newer layout to the same window.
             for previous in previousTasks { await previous.value }
             guard !Task.isCancelled else { layoutTasks[operation] = nil; return }
-            let result = await service.apply(layout, to: target, in: area)
+            let placement: (result: WindowLayoutResult, frame: CGRect?)
+            if preview {
+                placement = (constrained ? .constrained : .exact,
+                    constrained ? layout.anchoredFrame(size: target.window.frame.size, in: area) : layout.frame(in: area))
+            } else {
+                placement = await service.apply(layout, to: target, in: area)
+            }
+            let result = placement.result
             layoutTasks[operation] = nil
             // Count completed placement even if a newer panel now owns feedback.
             // Raising the arranged window below is part of this same use.
-            if result != .unavailable { statistics.record() }
+            if !preview, result != .unavailable { statistics.record() }
             // A later shortcut or selection owns feedback and keyboard focus.
             // The requested layout still completes, without interrupting it.
             guard !Task.isCancelled, feedbackID == feedback, !isPresented else { return }
-            if result != .unavailable {
+            if !preview, result != .unavailable {
                 // Raising a window is helpful after arranging a covered window;
                 // a failed raise does not undo an otherwise successful layout.
                 _ = catalog.activate(target.window)
+            }
+            if result == .unavailable {
+                clearPlacementHighlight()
+            } else {
+                await flight.value
+                guard !Task.isCancelled, feedbackID == feedback, !isPresented else { return }
+                if let actual = placement.frame {
+                    let landed = QuickLayoutGeometry.appKitRect(from: actual, primaryScreenTop: top)
+                    if landed != destination {
+                        await highlight?.move(to: landed, duration: reduceMotion ? 0 : 0.12)
+                    }
+                }
+                guard !Task.isCancelled, feedbackID == feedback, !isPresented else { return }
+                await highlight?.fadeOut()
+                guard !Task.isCancelled, feedbackID == feedback, !isPresented else { return }
+                clearPlacementHighlight()
             }
             switch result {
             case .exact: break
@@ -176,7 +221,8 @@ final class QuickLayoutController {
         panel?.title = settings.text("窗口定位")
         panel?.contentView = Self.glassContentView(for: QuickLayoutView(settings: settings,
             title: target.window.title, applicationName: target.window.applicationName,
-            icon: target.window.icon, onChoose: { [weak self] in self?.choose($0) }),
+            icon: target.window.icon, onChoose: { [weak self] in self?.choose($0) },
+            onDiagramFramesChange: { [weak self] in self?.diagramFrames = $0 }),
             size: QuickLayoutView.panelSize, cornerRadius: 22)
         panel?.setFrame(frame, display: true)
         panel?.makeKeyAndOrderFront(nil)
@@ -292,6 +338,11 @@ final class QuickLayoutController {
         tipPanel = nil
     }
 
+    private func clearPlacementHighlight() {
+        placementHighlight?.hide()
+        placementHighlight = nil
+    }
+
     private static func glassContentView<Content: View>(for content: Content, size: CGSize,
                                                        cornerRadius: CGFloat) -> NSView {
         let frame = CGRect(origin: .zero, size: size)
@@ -330,6 +381,7 @@ final class QuickLayoutController {
         previewConstrained = constrained
         visibleScreenFrame = screen.visibleFrame
         let top = primary.frame.maxY
+        primaryScreenTop = top
         layoutArea = Self.axRect(screen.visibleFrame, primaryScreenTop: top)
         let size = CGSize(width: min(900, screen.visibleFrame.width * 0.72),
                           height: min(560, screen.visibleFrame.height * 0.68))
@@ -348,6 +400,86 @@ final class QuickLayoutController {
         presentPanel(near: CGPoint(x: frame.midX, y: frame.midY))
     }
     #endif
+
+    /// A passive screen overlay keeps the blue block continuous as it grows
+    /// out of the template, without moving focus or intercepting clicks.
+    @MainActor
+    private final class PlacementHighlight {
+        private let panel: QuickLayoutPassivePanel
+        private let region = CALayer()
+        private let screenFrame: CGRect
+        private let accent = NSColor.controlAccentColor
+
+        init(source: CGRect, in screenFrame: CGRect) {
+            self.screenFrame = screenFrame
+            panel = QuickLayoutPassivePanel(contentRect: screenFrame,
+                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            QuickLayoutController.configure(panel)
+            panel.identifier = NSUserInterfaceItemIdentifier("quickLayoutPlacement")
+            panel.ignoresMouseEvents = true
+            let content = NSView(frame: CGRect(origin: .zero, size: screenFrame.size))
+            content.wantsLayer = true
+            region.frame = source.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+            region.cornerRadius = 3
+            region.backgroundColor = accent.cgColor
+            region.borderColor = accent.withAlphaComponent(0).cgColor
+            content.layer?.addSublayer(region)
+            panel.contentView = content
+            panel.orderFrontRegardless()
+        }
+
+        func move(to frame: CGRect, duration: TimeInterval) async {
+            let destination = frame.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+            let fill = accent.withAlphaComponent(0.10).cgColor
+            let border = accent.withAlphaComponent(0.88).cgColor
+            let animations = [
+                animation("position", from: region.position,
+                          to: CGPoint(x: destination.midX, y: destination.midY)),
+                animation("bounds", from: region.bounds, to: CGRect(origin: .zero, size: destination.size)),
+                animation("cornerRadius", from: region.cornerRadius, to: CGFloat(8)),
+                animation("backgroundColor", from: region.backgroundColor, to: fill),
+                animation("borderColor", from: region.borderColor, to: border),
+                animation("borderWidth", from: region.borderWidth, to: CGFloat(2))
+            ]
+            await withCheckedContinuation { continuation in
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                CATransaction.setCompletionBlock { continuation.resume() }
+                region.frame = destination
+                region.cornerRadius = 8
+                region.backgroundColor = fill
+                region.borderColor = border
+                region.borderWidth = 2
+                if duration > 0 {
+                    for animation in animations { animation.duration = duration }
+                    let group = CAAnimationGroup()
+                    group.animations = animations
+                    group.duration = duration
+                    group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    region.add(group, forKey: "placement")
+                }
+                CATransaction.commit()
+            }
+        }
+
+        func fadeOut() async {
+            await withCheckedContinuation { continuation in
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.15
+                    panel.animator().alphaValue = 0
+                }, completionHandler: { continuation.resume() })
+            }
+        }
+
+        func hide() { panel.orderOut(nil) }
+
+        private func animation(_ key: String, from: Any?, to: Any) -> CABasicAnimation {
+            let animation = CABasicAnimation(keyPath: key)
+            animation.fromValue = from
+            animation.toValue = to
+            return animation
+        }
+    }
 }
 
 private final class QuickLayoutPanel: NSPanel {

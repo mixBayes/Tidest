@@ -71,15 +71,20 @@ final class WindowLayoutService {
         return Task.isCancelled ? nil : result
     }
 
-    func apply(_ layout: QuickLayout, to target: LayoutTarget, in area: CGRect) async -> WindowLayoutResult {
+    func apply(_ layout: QuickLayout, to target: LayoutTarget, in area: CGRect) async
+        -> (result: WindowLayoutResult, frame: CGRect?) {
         guard AXIsProcessTrusted(), Self.valid(area),
               let app = NSRunningApplication(processIdentifier: target.window.processID),
-              !app.isTerminated else { return .unavailable }
+              !app.isTerminated else { return (.unavailable, nil) }
         let window = target.window
         let task = Task.detached(priority: .userInitiated) {
             AXUIElementSetMessagingTimeout(window.element, 0.15)
-            return await Self.performLayout(layout, in: area,
-                readFrame: { AXAccess.frame(window.element) },
+            var lastFrame: CGRect?
+            let result = await Self.performLayout(layout, in: area,
+                readFrame: {
+                    lastFrame = AXAccess.frame(window.element)
+                    return lastFrame
+                },
                 isSettable: { attribute in
                     var settable = DarwinBoolean(false)
                     let error = AXUIElementIsAttributeSettable(window.element, attribute as CFString, &settable)
@@ -102,9 +107,10 @@ final class WindowLayoutService {
                         return !Task.isCancelled
                     } catch { return false }
                 })
+            return (result: result, frame: result == .unavailable ? nil : lastFrame)
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-        return Task.isCancelled ? .unavailable : result
+        return Task.isCancelled ? (.unavailable, nil) : result
     }
 
     // A front panel which cannot be laid out still blocks selection of the

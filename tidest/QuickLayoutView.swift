@@ -14,15 +14,18 @@ struct QuickLayoutView: View {
     private let applicationName: String
     private let icon: NSImage?
     private let onChoose: (QuickLayout) -> Void
+    private let onDiagramFramesChange: ([QuickLayout: CGRect]) -> Void
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     init(settings: AppSettings, title: String, applicationName: String, icon: NSImage?,
-         onChoose: @escaping (QuickLayout) -> Void) {
+         onChoose: @escaping (QuickLayout) -> Void,
+         onDiagramFramesChange: @escaping ([QuickLayout: CGRect]) -> Void) {
         self.settings = settings
         self.title = title
         self.applicationName = applicationName
         self.icon = icon
         self.onChoose = onChoose
+        self.onDiagramFramesChange = onDiagramFramesChange
     }
 
     var body: some View {
@@ -48,6 +51,8 @@ struct QuickLayoutView: View {
         }
         .padding(16)
         .frame(width: Self.panelSize.width, height: Self.panelSize.height)
+        .coordinateSpace(name: "quickLayoutPanel")
+        .onPreferenceChange(QuickLayoutDiagramFramesKey.self, perform: onDiagramFramesChange)
         .environment(\.locale, settings.locale)
         .transaction { if reduceMotion { $0.animation = nil } }
         .accessibilityElement(children: .contain)
@@ -180,12 +185,26 @@ private struct QuickLayoutDiagram: View {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(Color.accentColor.opacity(highlighted ? 1 : 0.72))
                     .frame(width: selected.width, height: selected.height)
+                    .background {
+                        GeometryReader { block in
+                            Color.clear.preference(key: QuickLayoutDiagramFramesKey.self,
+                                value: [layout: block.frame(in: .named("quickLayoutPanel"))])
+                        }
+                    }
                     .offset(x: selected.minX, y: selected.minY)
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(Color.primary.opacity(highlighted ? 0.24 : 0.16), lineWidth: 1)
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+nonisolated private struct QuickLayoutDiagramFramesKey: PreferenceKey {
+    static var defaultValue: [QuickLayout: CGRect] { [:] }
+
+    static func reduce(value: inout [QuickLayout: CGRect], nextValue: () -> [QuickLayout: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

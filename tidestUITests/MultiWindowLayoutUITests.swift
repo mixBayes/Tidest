@@ -61,6 +61,7 @@ final class MultiWindowLayoutUITests: XCTestCase {
         card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.15, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99)))
         let bottom = app.buttons["multiLayoutRegion-2"]
+        XCTAssertTrue(bottom.waitForExistence(timeout: 2), "Wait for the card to land before reading the normal editor")
         XCTAssertEqual(regions(app).count, 3)
         let settled = NSPredicate { _, _ in
             abs(bottom.frame.width - area.width) < 1 && abs(bottom.frame.height - area.height / 2) < 1
@@ -89,6 +90,8 @@ final class MultiWindowLayoutUITests: XCTestCase {
             .withOffset(CGVector(dx: 0, dy: before[0].minY - card.frame.minY - 8))
         card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.15, thenDragTo: outside)
+        XCTAssertTrue(app.buttons["multiLayoutRegion-0"].waitForExistence(timeout: 2),
+                      "The canceled card must finish returning before the normal editor is restored")
         XCTAssertEqual(regions(app).allElementsBoundByIndex.map(\.frame), before)
         XCTAssertTrue(app.buttons["multiLayoutRegion-0"].label.contains("示例窗口 1"))
         XCTAssertTrue(app.buttons["multiLayoutRegion-1"].label.contains("示例窗口 2"))

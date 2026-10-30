@@ -72,7 +72,7 @@ struct MultiWindowLayoutView: View {
                 Text(settings.text("快速布局")).font(.system(size: 14, weight: .semibold)).fixedSize()
                 Divider().frame(height: 18)
                 layoutChoices
-                    .disabled(controller.isApplying || !controller.outcomes.isEmpty)
+                    .disabled(controller.isApplying || controller.isDraggingRegion || !controller.outcomes.isEmpty)
             }
             .frame(height: 30)
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -93,7 +93,7 @@ struct MultiWindowLayoutView: View {
             }
             .padding(6)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .disabled(controller.isApplying)
+            .disabled(controller.isApplying || controller.isDraggingRegion)
             .fixedSize()
             HStack(spacing: 4) {
                 Button(settings.text("取消")) { controller.dismiss() }
@@ -416,8 +416,17 @@ private struct LayoutDraftCanvas: View {
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
 
     private struct CellDrag {
+        let id = UUID()
         let source: UUID
+        let original: MultiWindowLayoutDraft
+        let grabOffset: CGSize
         var location: CGPoint
+        var target: LayoutRegionDropTarget?
+        var isSettling = false
+    }
+
+    private var dragAnimation: Animation? {
+        reduceMotion ? nil : .timingCurve(0.3, 0, 0.2, 1, duration: 0.26)
     }
 
     private struct SplitOrigin {
@@ -455,7 +464,6 @@ private struct LayoutDraftCanvas: View {
         GeometryReader { geometry in
             if let draft = controller.draft {
                 let resizeTarget = resizeTarget(in: geometry.size)
-                let drop = dropPreview(in: geometry.size)
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(draft.root.leaves.enumerated()), id: \.element.region.id) { index, leaf in
                         region(leaf, index: index, size: geometry.size)
@@ -507,17 +515,11 @@ private struct LayoutDraftCanvas: View {
                     if resizeTarget != nil { updateResizeCursor(resizeTarget) }
                 }
                 .onDisappear { if resizeTarget != nil { NSCursor.arrow.set() } }
-                .opacity(drop == nil ? 1 : 0.15)
+                .opacity(cellDrag == nil ? 1 : 0)
                 .overlay(alignment: .topLeading) {
                     if let drag = cellDrag {
-                        ZStack(alignment: .topLeading) {
-                            if let drop {
-                                dropOverlay(drop.draft, source: drag.source, target: drop.target, size: geometry.size)
-                            }
-                            draggedCard(drag, target: drop?.target, size: geometry.size)
-                        }
+                        dragOverlay(drag, size: geometry.size)
                         .allowsHitTesting(false)
-                        .accessibilityHidden(true)
                     }
                 }
             }
@@ -527,14 +529,16 @@ private struct LayoutDraftCanvas: View {
         .accessibilityIdentifier("multiLayoutCanvas")
         .onChange(of: controller.draft?.root) { _, _ in
             if splittingRegion == nil { splitOrigin = nil }
-            cellDrag = nil
+            endCellDrag()
         }
         .onChange(of: controller.target?.id) { _, _ in
             splitOrigin = nil
             resizeOrigin = nil
-            cellDrag = nil
+            endCellDrag()
         }
-        .onChange(of: draggingCard) { _, active in if !active { endCellDrag() } }
+        .onChange(of: draggingCard) { _, active in
+            if !active && cellDrag?.isSettling != true { endCellDrag() }
+        }
         .onChange(of: controller.isPresented) { _, presented in if !presented { endCellDrag() } }
         .onChange(of: controller.displayInvalidated) { _, invalid in if invalid { endCellDrag() } }
         .onChange(of: controller.isApplying) { _, applying in if applying { endCellDrag() } }
@@ -571,48 +575,11 @@ private struct LayoutDraftCanvas: View {
 
             ZStack(alignment: .topTrailing) {
                 Button { controller.selectRegion(leaf.region.id) } label: {
-                    Group {
-                        if compact {
-                            Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
-                                .font(.system(size: 12, weight: .medium))
-                                .lineLimit(1).truncationMode(.tail)
-                                .padding(.trailing, max(0, controlsWidth - 4))
-                                .padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 32)
-                        } else {
-                            VStack(spacing: 6) {
-                                Text(settings.text("区域 %@", String(index + 1)))
-                                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.75)).padding(.horizontal, 24)
-                                if let choice {
-                                    if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36) }
-                                    Text(choice.window.applicationName).font(.system(size: 16, weight: .semibold))
-                                        .lineLimit(1).truncationMode(.tail)
-                                    Text(choice.window.title).font(.system(size: 12)).lineLimit(2)
-                                        .truncationMode(.tail)
-                                        .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.8))
-                                } else {
-                                    Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
-                                    Text(settings.text(controller.draft?.assignments[leaf.region.id] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
-                                        .font(.system(size: 14, weight: .medium))
-                                }
-                                if controller.sizeConflicts.contains(leaf.region.id) {
-                                    Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
-                                }
-                            }
-                            .padding(10).frame(maxWidth: .infinity)
-                        }
+                    if let draft = controller.draft {
+                        cardFace(for: leaf.region.id, index: index, draft: draft,
+                                 frame: CGSize(width: cardWidth, height: cardHeight),
+                                 emphasized: hovered, controlsWidth: controlsWidth)
                     }
-                    .frame(width: cardWidth, height: cardHeight)
-                    .foregroundStyle(.white)
-                    .background {
-                        let shape = RoundedRectangle(cornerRadius: compact ? 8 : 14)
-                        shape.fill(.regularMaterial)
-                        shape.fill(Color(red: 0.24, green: 0.34, blue: 0.48).opacity(hovered ? 0.98 : 0))
-                        shape.strokeBorder(hovered ? highlight.opacity(0.85) : .white.opacity(0.16), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(hovered ? 0.3 : 0.12), radius: 16, y: 5)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: hovered)
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focusable(false).accessibilityHidden(true)
                 .highPriorityGesture(cardDrag(from: leaf.region.id, size: size),
@@ -657,11 +624,68 @@ private struct LayoutDraftCanvas: View {
         .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
     }
 
-    private func dropPreview(in size: CGSize) -> (target: LayoutRegionDropTarget, draft: MultiWindowLayoutDraft)? {
-        guard let drag = cellDrag, let root = controller.draft?.root,
-              let target = LayoutRegionDropTarget.hitTest(drag.location, in: size, root: root, source: drag.source),
-              let preview = controller.previewDrop(from: drag.source, to: target) else { return nil }
-        return (target, preview)
+    private func cardFace(for region: UUID, index: Int, draft: MultiWindowLayoutDraft,
+                          frame: CGSize, emphasized: Bool, controlsWidth: CGFloat) -> some View {
+        let compact = frame.height == 32
+        let choice = draft.assignments[region].flatMap { id in controller.windows.first { $0.id == id } }
+        return Group {
+            if compact {
+                Text("\(index + 1) · " + (choice?.window.applicationName ?? settings.text("选择窗口")))
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.trailing, max(0, controlsWidth - 4))
+                    .padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 32)
+            } else {
+                VStack(spacing: 6) {
+                    Text(settings.text("区域 %@", String(index + 1)))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(emphasized ? 0.95 : 0.75)).padding(.horizontal, 24)
+                    if let choice {
+                        if let icon = choice.window.icon { Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36) }
+                        Text(choice.window.applicationName).font(.system(size: 16, weight: .semibold))
+                            .lineLimit(1).truncationMode(.tail)
+                        Text(choice.window.title).font(.system(size: 12)).lineLimit(2)
+                            .truncationMode(.tail)
+                            .foregroundStyle(.white.opacity(emphasized ? 0.95 : 0.8))
+                    } else {
+                        Image(systemName: "macwindow.badge.plus").font(.system(size: 24, weight: .light))
+                        Text(settings.text(draft.assignments[region] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    if controller.sizeConflicts.contains(region) {
+                        Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                .padding(10).frame(maxWidth: .infinity)
+            }
+        }
+        .frame(width: frame.width, height: frame.height)
+        .foregroundStyle(.white)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: compact ? 8 : 14)
+            shape.fill(.regularMaterial)
+            shape.fill(Color(red: 0.24, green: 0.34, blue: 0.48).opacity(emphasized ? 0.98 : 0))
+            shape.strokeBorder(emphasized ? highlight.opacity(0.85) : .white.opacity(0.16), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(emphasized ? 0.3 : 0.12), radius: 16, y: 5)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: emphasized)
+        .contentShape(Rectangle())
+    }
+
+    private func dropTarget(at point: CGPoint, from source: UUID, size: CGSize) -> LayoutRegionDropTarget? {
+        guard let root = controller.draft?.root,
+              let target = LayoutRegionDropTarget.hitTest(point, in: size, root: root, source: source),
+              controller.previewDrop(from: source, to: target) != nil else { return nil }
+        return target
+    }
+
+    private func cardFrame(in leaf: CGRect, size: CGSize) -> CGRect {
+        let width = leaf.width * size.width
+        let height = leaf.height * size.height
+        let cardWidth = min(300, max(0, width - 80))
+        let cardHeight: CGFloat = height < 240 || width < 240 ? 32 : 160
+        return CGRect(x: leaf.midX * size.width - cardWidth / 2,
+                      y: leaf.midY * size.height - cardHeight / 2, width: cardWidth, height: cardHeight)
     }
 
     private func cardDrag(from source: UUID, size: CGSize) -> some Gesture {
@@ -669,21 +693,38 @@ private struct LayoutDraftCanvas: View {
             .updating($draggingCard) { _, active, _ in active = true }
             .onChanged { value in
                 guard !controller.isApplying, controller.outcomes.isEmpty, !controller.choosingWindow,
-                      !controller.displayInvalidated, splittingRegion == nil, resizeOrigin == nil else { return }
-                cellDrag = CellDrag(source: source, location: value.location)
+                      !controller.displayInvalidated, splittingRegion == nil, resizeOrigin == nil,
+                      cellDrag?.isSettling != true, let draft = controller.draft else { return }
+                if var drag = cellDrag {
+                    drag.location = value.location
+                    drag.target = dropTarget(at: value.location, from: source, size: size)
+                    cellDrag = drag
+                } else if let leaf = draft.root.leaves.first(where: { $0.region.id == source }) {
+                    let frame = cardFrame(in: leaf.frame, size: size)
+                    cellDrag = CellDrag(source: source, original: draft,
+                                        grabOffset: CGSize(width: frame.midX - value.startLocation.x,
+                                                           height: frame.midY - value.startLocation.y),
+                                        location: value.location,
+                                        target: dropTarget(at: value.location, from: source, size: size))
+                }
                 if !controller.isDraggingRegion { controller.isDraggingRegion = true }
                 NSCursor.closedHand.set()
             }
             .onEnded { value in
-                let target = controller.draft.flatMap {
-                    LayoutRegionDropTarget.hitTest(value.location, in: size, root: $0.root, source: source)
-                }
-                let active = cellDrag?.source == source
-                endCellDrag()
-                if active, let target {
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
-                        controller.dropRegion(source, to: target)
-                    }
+                guard var drag = cellDrag, drag.source == source, !drag.isSettling else { return }
+                drag.location = value.location
+                drag.target = dropTarget(at: value.location, from: source, size: size)
+                drag.isSettling = true
+                let ending = drag
+                NSCursor.arrow.set()
+                // Keep the original cards mounted until the floating card has
+                // landed. Committing first would replace their contents mid-flight.
+                withAnimation(dragAnimation, completionCriteria: .removed) {
+                    cellDrag = ending
+                } completion: {
+                    guard cellDrag?.id == ending.id else { return }
+                    if let target = ending.target { controller.dropRegion(source, to: target) }
+                    endCellDrag()
                 }
             }
     }
@@ -694,74 +735,108 @@ private struct LayoutDraftCanvas: View {
         if controller.isDraggingRegion { controller.isDraggingRegion = false }
     }
 
-    private func dropOverlay(_ preview: MultiWindowLayoutDraft, source: UUID,
-                             target: LayoutRegionDropTarget, size: CGSize) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.black.opacity(0.45)
-            ForEach(Array(preview.root.leaves.enumerated()), id: \.element.region.id) { index, leaf in
-                let choice = preview.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
-                let emphasized = leaf.region.id == source || target == .swap(leaf.region.id)
-                ZStack {
-                    Rectangle().fill(emphasized ? highlight.opacity(0.2) : Color.white.opacity(0.06))
-                    Rectangle().strokeBorder(emphasized ? highlight : Color.white.opacity(0.4), lineWidth: emphasized ? 3 : 1)
-                    VStack(spacing: 6) {
-                        Text(settings.text("区域 %@", String(index + 1)))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text(choice?.window.applicationName ?? settings.text("空格子"))
-                            .font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                        if let choice {
-                            Text(choice.window.title).font(.system(size: 12)).lineLimit(1)
-                        }
-                    }
-                    .padding(12).frame(maxWidth: 280)
-                    .foregroundStyle(.white)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .padding(12)
+    private func dragOverlay(_ drag: CellDrag, size: CGSize) -> some View {
+        let preview = drag.target.flatMap { drag.original.previewingDrop(from: drag.source, to: $0) } ?? drag.original
+        let leaves = preview.root.leaves
+        let placements = preview.root.placements()
+        return ZStack(alignment: .topLeading) {
+            // The same screen tint and card faces remain throughout the drag.
+            Color.white.opacity(0.055)
+            Rectangle().strokeBorder(.white.opacity(0.25), lineWidth: 1)
+            ForEach(drag.original.root.placements(), id: \.region.id) { original in
+                if let current = placements.first(where: { $0.region.id == original.region.id }),
+                   case .split(_, let axis, let ratio, _, _) = current.region {
+                    let rect = current.frame
+                    let from = CGPoint(x: (rect.minX + (axis == .columns ? rect.width * ratio : 0)) * size.width,
+                                       y: (rect.minY + (axis == .rows ? rect.height * ratio : 0)) * size.height)
+                    let to = CGPoint(x: axis == .columns ? from.x : rect.maxX * size.width,
+                                     y: axis == .rows ? from.y : rect.maxY * size.height)
+                    LayoutDragDivider(from: from, to: to)
+                        .stroke(.white.opacity(0.25), lineWidth: 1)
+                        .animation(dragAnimation, value: drag.target)
                 }
-                .frame(width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
-                .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
             }
+            ForEach(drag.original.root.leafIDs, id: \.self) { id in
+                if let leaf = leaves.first(where: { $0.region.id == id }) {
+                    let targeted = drag.target == .swap(id) || (id == drag.source && isEdgeDrop(drag.target))
+                    Rectangle().fill(highlight.opacity(targeted ? 0.17 : 0))
+                        .overlay {
+                            Rectangle().inset(by: 2).strokeBorder(highlight.opacity(targeted ? 0.95 : 0), lineWidth: 2)
+                                .shadow(color: highlight.opacity(targeted ? 0.55 : 0), radius: 10)
+                        }
+                        .frame(width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
+                        .position(x: leaf.frame.midX * size.width, y: leaf.frame.midY * size.height)
+                        .animation(dragAnimation, value: drag.target)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(settings.text(drag.target == .swap(id) ? "松手交换窗口" : "松手移动格子"))
+                        .accessibilityIdentifier("multiLayoutDropTarget-\(id)")
+                        .accessibilityHidden(!targeted)
+                }
+            }
+            ForEach(Array(drag.original.root.leaves.enumerated()), id: \.element.region.id) { index, origin in
+                dragCard(origin, index: index, drag: drag, preview: preview, size: size)
+            }
+            dragHint(drag, size: size)
         }
         .frame(width: size.width, height: size.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("multiLayoutDragPreview")
     }
 
-    private func draggedCard(_ drag: CellDrag, target: LayoutRegionDropTarget?, size: CGSize) -> some View {
-        let choice = controller.draft?.assignments[drag.source].flatMap { id in controller.windows.first { $0.id == id } }
+    private func isEdgeDrop(_ target: LayoutRegionDropTarget?) -> Bool {
+        if case .move = target { return true }
+        return false
+    }
+
+    private func dragCard(_ origin: LayoutRegion.Placement, index: Int, drag: CellDrag,
+                          preview: MultiWindowLayoutDraft, size: CGSize) -> some View {
+        let source = origin.region.id == drag.source
+        let floating = source && !drag.isSettling
+        let destination: UUID
+        if case .swap(let other) = drag.target {
+            destination = source ? other : (origin.region.id == other ? drag.source : origin.region.id)
+        } else { destination = origin.region.id }
+        let leaves = preview.root.leaves
+        let placement = leaves.first { $0.region.id == destination } ?? origin
+        let frame = cardFrame(in: floating ? origin.frame : placement.frame, size: size)
+        let center = floating
+            ? CGPoint(x: drag.location.x + drag.grabOffset.width, y: drag.location.y + drag.grabOffset.height)
+            : CGPoint(x: frame.midX, y: frame.midY)
+        let canClear = drag.original.assignments[origin.region.id] != nil
+        let controlsWidth = CGFloat((drag.original.root.leafIDs.count > 1 ? 1 : 0) + (canClear ? 1 : 0)) * 28
+        let displayIndex = floating ? index : (leaves.firstIndex { $0.region.id == destination } ?? index)
+        return cardFace(for: origin.region.id, index: displayIndex, draft: drag.original, frame: frame.size,
+                        emphasized: source || drag.target == .swap(origin.region.id), controlsWidth: controlsWidth)
+            .scaleEffect(floating ? 1.015 : 1)
+            .shadow(color: .black.opacity(floating ? 0.2 : 0), radius: 20, y: 8)
+            .position(center)
+            .animation(source && !drag.isSettling ? nil : dragAnimation, value: drag.target)
+            .animation(dragAnimation, value: drag.isSettling)
+            .zIndex(source ? 1 : 0)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(drag.original.assignments[origin.region.id].flatMap { id in
+                controller.windows.first { $0.id == id }?.window.title
+            } ?? settings.text("空格子"))
+            .accessibilityIdentifier("multiLayoutDragCard-\(index)")
+    }
+
+    private func dragHint(_ drag: CellDrag, size: CGSize) -> some View {
         let hint: String
-        switch target {
+        switch drag.target {
         case .swap: hint = "松手交换窗口"
         case .move: hint = "松手移动格子"
         case nil: hint = "拖到格子中间交换，拖到屏幕边缘移动"
         }
-        return VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                if let icon = choice?.window.icon {
-                    Image(nsImage: icon).resizable().scaledToFit().frame(width: 28, height: 28)
-                } else {
-                    Image(systemName: "rectangle.dashed").font(.system(size: 24))
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(choice?.window.applicationName ?? settings.text("空格子"))
-                        .font(.system(size: 14, weight: .semibold))
-                    if let choice { Text(choice.window.title).font(.system(size: 12)) }
-                }
-                .lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "hand.draw.fill").foregroundStyle(highlight)
-            }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(highlight.opacity(0.8), lineWidth: 1))
-            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-            Text(settings.text(hint)).font(.system(size: 12)).multilineTextAlignment(.center)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
-        }
-        .foregroundStyle(.white)
-        .frame(width: 264)
-        .position(x: min(max(140, drag.location.x), max(140, size.width - 140)),
-                  y: min(max(60, drag.location.y + 78), max(60, size.height - 60)))
+        return Text(settings.text(hint)).font(.system(size: 12)).multilineTextAlignment(.center)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .foregroundStyle(.white)
+            .frame(maxWidth: 290)
+            .position(x: min(max(150, drag.location.x), max(150, size.width - 150)),
+                      y: min(max(24, drag.location.y + drag.grabOffset.height + 108), max(24, size.height - 24)))
+            .opacity(drag.isSettling ? 0 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: drag.isSettling)
+            .accessibilityIdentifier("multiLayoutDragHint")
     }
 
     private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize,
@@ -841,6 +916,27 @@ private struct LayoutDraftCanvas: View {
         if cellDrag != nil { NSCursor.closedHand.set(); return }
         guard let divider else { NSCursor.arrow.set(); return }
         (divider.vertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).set()
+    }
+}
+
+/// Interpolate divider endpoints, including when a split changes direction.
+private struct LayoutDragDivider: Shape {
+    var from: CGPoint
+    var to: CGPoint
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(from.x, from.y), AnimatablePair(to.x, to.y)) }
+        set {
+            from = CGPoint(x: newValue.first.first, y: newValue.first.second)
+            to = CGPoint(x: newValue.second.first, y: newValue.second.second)
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: to)
+        return path
     }
 }
 
