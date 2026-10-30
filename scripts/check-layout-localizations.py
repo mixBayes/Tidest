@@ -9,7 +9,8 @@ LANGUAGES = ("en", "zh-Hans", "zh-Hant", "ja", "ko")
 PAIR = re.compile(r'^("(?:[^"\\]|\\.)*")\s*=\s*("(?:[^"\\]|\\.)*");\s*$', re.M)
 sources = [*ROOT.glob("tidest/MultiWindowLayout*.swift"), ROOT / "tidest/LayoutTemplateStore.swift"]
 required = {"窗口定位", "窗口定位快捷键", "快速布局", "快速布局快捷键", "未设置",
-            "这个快捷键用于窗口定位，请选择其他快捷键。", "默认未设置，可从菜单栏打开快速布局。"}
+            "这个快捷键用于窗口定位，请选择其他快捷键。", "按快捷键在屏幕上排列窗口。",
+            "设置快捷键后，即可打开快速布局。", "先在“设置 → 窗口”中设置快捷键"}
 for source in sources:
     for literal in re.findall(r'"([^"\n\\]*)"', source.read_text()):
         if re.search(r"[\u4e00-\u9fff]", literal):

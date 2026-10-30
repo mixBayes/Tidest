@@ -201,22 +201,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.target = self
             menu.addItem(item)
         }
-        func addShortcut(_ title: String, _ shortcut: WindowShortcut) {
-            let item = NSMenuItem(title: settings.text("%@ · %@", settings.text(title), shortcut.symbolDisplayName),
+        func addShortcut(_ title: String, _ shortcut: WindowShortcut?) {
+            let item = NSMenuItem(title: shortcut.map { settings.text("%@ · %@", settings.text(title), $0.symbolDisplayName) } ?? settings.text(title),
                                   action: nil, keyEquivalent: "")
-            item.setAccessibilityLabel(settings.text("%@ · %@", settings.text(title), shortcut.displayName))
+            item.isEnabled = false
+            item.setAccessibilityLabel(shortcut.map { settings.text("%@ · %@", settings.text(title), $0.displayName) } ?? settings.text(title))
             menu.addItem(item)
         }
         addAction(settings.text("设置"), #selector(showSettings), key: ",")
         menu.addItem(.separator())
         addShortcut("窗口切换", settings.shortcut)
         addShortcut("窗口定位", settings.layoutShortcut)
-        let multiTitle = settings.multiLayoutShortcut.map { settings.text("%@ · %@", settings.text("快速布局"), $0.symbolDisplayName) } ?? settings.text("快速布局…")
-        addAction(multiTitle, #selector(showMultiWindowLayout))
-        menu.items.last?.setAccessibilityIdentifier("openMultiWindowLayout")
-        if multiLayout.undoAvailable {
-            addAction(settings.text("撤销上次快速布局"), #selector(undoMultiWindowLayout))
-        }
+        addShortcut("快速布局", settings.multiLayoutShortcut)
+        menu.items.last?.setAccessibilityIdentifier("multiWindowLayoutShortcut")
         if settings.pinningEnabled { addShortcut("拾取窗口", settings.pinShortcut) }
         addAction(settings.text("使用说明"), #selector(showUsageGuide))
         addAction(settings.text("操作统计"), #selector(showStatistics))
@@ -532,14 +529,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         quickLayout.stop()
         pinnedWindows.cancelInteraction()
         multiLayout.present(preview: isPreview)
-    }
-
-    @objc private func undoMultiWindowLayout() {
-        guard !multiLayout.isApplying else { return }
-        switcher.dismiss()
-        quickLayout.stop()
-        pinnedWindows.cancelInteraction()
-        multiLayout.presentUndo()
     }
 
     private func changeMultiLayoutShortcut(_ value: WindowShortcut?) -> String? {

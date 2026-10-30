@@ -16,6 +16,30 @@ nonisolated enum LayoutSplitEdge: String, Sendable {
     }
 }
 
+nonisolated enum LayoutRegionDropTarget: Equatable, Sendable {
+    case swap(UUID)
+    case move(LayoutSplitEdge)
+
+    /// The outer edge belongs to the whole layout, rather than the cell under it.
+    static func hitTest(_ point: CGPoint, in size: CGSize, root: LayoutRegion, source: UUID) -> Self? {
+        guard point.x.isFinite, point.y.isFinite, size.width > 0, size.height > 0,
+              point.x >= 0, point.y >= 0, point.x <= size.width, point.y <= size.height,
+              root.leafIDs.contains(source) else { return nil }
+        let edges: [(LayoutSplitEdge, CGFloat)] = [
+            (.left, point.x), (.right, size.width - point.x),
+            (.top, point.y), (.bottom, size.height - point.y)
+        ]
+        let reach = min(56, min(size.width, size.height) * 0.15)
+        if let nearest = edges.min(by: { $0.1 < $1.1 }), nearest.1 <= reach {
+            return .move(nearest.0)
+        }
+        let normalized = CGPoint(x: point.x / size.width, y: point.y / size.height)
+        guard let target = root.leaves.first(where: { $0.frame.contains(normalized) }),
+              target.region.id != source else { return nil }
+        return .swap(target.region.id)
+    }
+}
+
 /// Only structure and normalized ratios are persisted. No window or display identity belongs here.
 nonisolated indirect enum LayoutRegion: Codable, Equatable, Sendable {
     case leaf(UUID)
@@ -82,6 +106,18 @@ nonisolated indirect enum LayoutRegion: Codable, Equatable, Sendable {
         }
     }
 
+    /// Compare the visible layout, independent of region IDs and split order.
+    func hasSameLayout(as other: LayoutRegion) -> Bool {
+        let frames = leaves.map(\.frame)
+        let otherFrames = other.leaves.map(\.frame)
+        guard frames.count == otherFrames.count else { return false }
+        return zip(frames, otherFrames).allSatisfy { first, second in
+            // Equivalent split calculations may differ by floating-point rounding.
+            abs(first.minX - second.minX) < 1e-9 && abs(first.minY - second.minY) < 1e-9 &&
+            abs(first.width - second.width) < 1e-9 && abs(first.height - second.height) < 1e-9
+        }
+    }
+
     /// Bound saved input and editing complexity; reject malformed templates instead of repairing them silently.
     var isValid: Bool {
         var identifiers = Set<UUID>()
@@ -98,6 +134,27 @@ nonisolated indirect enum LayoutRegion: Codable, Equatable, Sendable {
 
     func fits(minimumSize: CGSize) -> Bool {
         leaves.allSatisfy { $0.frame.width + 0.000001 >= minimumSize.width && $0.frame.height + 0.000001 >= minimumSize.height }
+    }
+
+    /// Extract one cell, expand its sibling into the vacated space, then dock the
+    /// cell beside the remaining layout. Reuse the removed split ID so previews
+    /// and the committed edit describe exactly the same tree.
+    func movingLeaf(_ identifier: UUID, to edge: LayoutSplitEdge, minimumSize: CGSize = .zero) -> LayoutRegion? {
+        guard let source = leaves.first(where: { $0.region.id == identifier }),
+              let parent = parent(of: identifier),
+              case .split(_, _, _, let first, let second) = parent else { return nil }
+        let sibling = first.id == identifier ? second : first
+        let remainder = replacing(parent.id, with: sibling)
+        let extent = edge.axis == .columns ? source.frame.width : source.frame.height
+        // A full-height column moved to the top cannot keep the entire height;
+        // give it half instead, leaving room for the other cells.
+        let share = extent >= 1 - 0.000001 ? 0.5 : min(0.9, max(0.1, extent))
+        let leading = edge == .left || edge == .top
+        let ratio = min(0.9, max(0.1, leading ? share : 1 - share))
+        let result = LayoutRegion.split(parent.id, edge.axis, ratio,
+                                        leading ? source.region : remainder, leading ? remainder : source.region)
+        guard result != self, result.isValid, result.fits(minimumSize: minimumSize) else { return nil }
+        return result
     }
 
     /// Move touching, collinear dividers together (including the two halves of a four-cell grid).
@@ -254,6 +311,36 @@ nonisolated struct MultiWindowLayoutDraft: Equatable, Sendable {
         guard root.leafIDs.contains(region), window == nil || !assignments.contains(where: { $0.key != region && $0.value == window }) else { return false }
         checkpoint()
         assignments[region] = window
+        return true
+    }
+
+    /// Preview without adding history or changing the live draft. Both the
+    /// overlay and the final drop use these same rules.
+    func previewingDrop(from source: UUID, to target: LayoutRegionDropTarget,
+                        minimumSize: CGSize = .zero) -> MultiWindowLayoutDraft? {
+        guard root.leafIDs.contains(source) else { return nil }
+        var preview = self
+        switch target {
+        case .swap(let destination):
+            guard source != destination, root.leafIDs.contains(destination),
+                  assignments[source] != assignments[destination] else { return nil }
+            preview.assignments[source] = assignments[destination]
+            preview.assignments[destination] = assignments[source]
+        case .move(let edge):
+            guard let moved = root.movingLeaf(source, to: edge, minimumSize: minimumSize) else { return nil }
+            preview.root = moved
+        }
+        preview.selectedRegion = source
+        return preview
+    }
+
+    @discardableResult
+    mutating func drop(from source: UUID, to target: LayoutRegionDropTarget, minimumSize: CGSize = .zero) -> Bool {
+        guard let preview = previewingDrop(from: source, to: target, minimumSize: minimumSize) else { return false }
+        checkpoint()
+        root = preview.root
+        assignments = preview.assignments
+        selectedRegion = preview.selectedRegion
         return true
     }
 

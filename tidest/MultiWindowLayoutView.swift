@@ -9,6 +9,7 @@ struct MultiWindowLayoutView: View {
     @State private var renaming: LayoutTemplate?
     @State private var templateName = ""
     @State private var nameError = false
+    @State private var duplicateNotice: (id: UUID, layoutID: String, title: String)?
 
     var body: some View {
         GeometryReader { geometry in
@@ -31,6 +32,15 @@ struct MultiWindowLayoutView: View {
                 feedback
                     .frame(width: max(0, area.width - 40))
                     .offset(x: area.minX + 20, y: area.maxY - 62)
+                if let duplicateNotice {
+                    Label(settings.text("该布局已存在：%@", duplicateNotice.title), systemImage: "info.circle")
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(.regularMaterial, in: Capsule())
+                        .position(x: area.midX, y: area.maxY - 100)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("multiLayoutTemplateToast")
+                }
             }
         }
         .ignoresSafeArea()
@@ -46,6 +56,13 @@ struct MultiWindowLayoutView: View {
                 Text(settings.text("只清除结构变化区域的选择，其他区域保持不变。真实窗口不会移动。"))
             }
         .sheet(isPresented: $namingTemplate) { templateNaming }
+        .task(id: duplicateNotice?.id) {
+            guard duplicateNotice != nil else { return }
+            do { try await Task.sleep(for: .seconds(3)) }
+            catch { return }
+            duplicateNotice = nil
+        }
+        .onChange(of: controller.draft?.root) { duplicateNotice = nil }
     }
 
     private var toolbar: some View {
@@ -131,7 +148,7 @@ struct MultiWindowLayoutView: View {
             } else if controller.canApply && !controller.choosingWindow {
                 Text(settings.text("按 Enter 应用布局，按 Esc 取消。"))
             } else if !controller.choosingWindow && controller.outcomes.isEmpty {
-                Text(settings.text("点击格子选窗口，拖动分隔线调整大小。"))
+                Text(settings.text("点击格子选窗口，拖动卡片交换或移动格子。"))
             }
             Spacer()
         }
@@ -149,25 +166,28 @@ struct MultiWindowLayoutView: View {
     }
 
     private var layoutChoices: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                layoutButton(title: settings.text("空白布局"), root: .leaf(UUID()))
-                    .accessibilityIdentifier("multiLayoutBlank")
-                ForEach(LayoutStartingPoint.allCases) { start in
-                    layoutButton(title: settings.text(start.titleKey), root: start.makeRegion())
-                        .accessibilityIdentifier("multiLayoutStart-\(start.rawValue)")
-                }
-                if !templates.templates.isEmpty {
-                    Divider().frame(height: 18).padding(.horizontal, 4)
-                    ForEach(templates.templates) { template in
-                        layoutButton(title: template.name, root: template.root)
-                            .accessibilityIdentifier("multiLayoutTemplate-\(template.id)")
-                            .contextMenu {
-                                Button(settings.text("重命名")) { beginNaming(template) }
-                                Button(settings.text("删除模板"), role: .destructive) { templates.delete(template.id) }
-                            }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 4) {
+                    layoutButton(title: settings.text("空白布局"), root: .leaf(UUID()), identifier: "multiLayoutBlank")
+                    ForEach(LayoutStartingPoint.allCases) { start in
+                        layoutButton(title: settings.text(start.titleKey), root: start.makeRegion(),
+                                     identifier: "multiLayoutStart-\(start.rawValue)")
+                    }
+                    if !templates.templates.isEmpty {
+                        Divider().frame(height: 18).padding(.horizontal, 4)
+                        ForEach(templates.templates) { template in
+                            layoutButton(title: template.name, root: template.root, identifier: "multiLayoutTemplate-\(template.id)")
+                                .contextMenu {
+                                    Button(settings.text("重命名")) { beginNaming(template) }
+                                    Button(settings.text("删除模板"), role: .destructive) { templates.delete(template.id) }
+                                }
+                        }
                     }
                 }
+            }
+            .onChange(of: duplicateNotice?.id) {
+                if let duplicateNotice { proxy.scrollTo(duplicateNotice.layoutID, anchor: .center) }
             }
         }
         .scrollIndicators(.hidden)
@@ -178,8 +198,8 @@ struct MultiWindowLayoutView: View {
         .accessibilityIdentifier("multiLayoutLayouts")
     }
 
-    private func layoutButton(title: String, root: LayoutRegion) -> some View {
-        let selected = controller.draft?.root.leaves.map(\.frame) == root.leaves.map(\.frame)
+    private func layoutButton(title: String, root: LayoutRegion, identifier: String) -> some View {
+        let selected = controller.draft?.root.hasSameLayout(as: root) == true
         return Button { controller.request(.replace(root)) } label: {
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
@@ -195,9 +215,18 @@ struct MultiWindowLayoutView: View {
             }.frame(width: 26, height: 20)
         }
         .buttonStyle(LayoutToolbarIconStyle(selected: selected))
+        .overlay {
+            if duplicateNotice?.layoutID == identifier {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+        }
         .help(title)
         .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .id(identifier)
     }
 
     private var results: some View {
@@ -225,10 +254,27 @@ struct MultiWindowLayoutView: View {
     }
 
     private func beginNaming(_ template: LayoutTemplate?) {
+        if template == nil, let root = controller.draft?.root, showDuplicateLayout(for: root) { return }
+        duplicateNotice = nil
         renaming = template
-        templateName = template?.name ?? ""
+        templateName = template?.name ?? templates.suggestedName { settings.text("模板 %@", String($0)) }
         nameError = false
         namingTemplate = true
+    }
+
+    @discardableResult
+    private func showDuplicateLayout(for root: LayoutRegion) -> Bool {
+        let match: (identifier: String, title: String)
+        if root.hasSameLayout(as: .leaf(UUID())) {
+            match = ("multiLayoutBlank", settings.text("空白布局"))
+        } else if let start = LayoutStartingPoint.allCases.first(where: { $0.makeRegion().hasSameLayout(as: root) }) {
+            match = ("multiLayoutStart-\(start.rawValue)", settings.text(start.titleKey))
+        } else if let template = templates.matchingTemplate(for: root) {
+            match = ("multiLayoutTemplate-\(template.id)", template.name)
+        } else { return false }
+        namingTemplate = false
+        duplicateNotice = (UUID(), match.identifier, match.title)
+        return true
     }
 
     private var templateNaming: some View {
@@ -244,6 +290,7 @@ struct MultiWindowLayoutView: View {
                 Button(settings.text("取消")) { namingTemplate = false }.keyboardShortcut(.cancelAction)
                 Button(settings.text("保存")) {
                     guard let root = renaming?.root ?? controller.draft?.root else { return }
+                    if renaming == nil, showDuplicateLayout(for: root) { return }
                     if templates.save(name: templateName, root: root, replacing: renaming?.id) { namingTemplate = false }
                     else { nameError = true }
                 }.accessibilityIdentifier("multiLayoutConfirmSaveTemplate")
@@ -364,7 +411,14 @@ private struct LayoutDraftCanvas: View {
     @State private var splitOrigin: SplitOrigin?
     @State private var holdingSplitButton = false
     @State private var resizeOrigin: LayoutDividerGeometry?
+    @State private var cellDrag: CellDrag?
+    @GestureState private var draggingCard = false
     private let highlight = Color(red: 0.40, green: 0.71, blue: 1)
+
+    private struct CellDrag {
+        let source: UUID
+        var location: CGPoint
+    }
 
     private struct SplitOrigin {
         let id = UUID()
@@ -380,13 +434,14 @@ private struct LayoutDraftCanvas: View {
     }
 
     private var hoveredRegion: UUID? {
-        guard let pointer = controller.pointer, !controller.isApplying, controller.outcomes.isEmpty else { return nil }
+        guard cellDrag == nil, let pointer = controller.pointer,
+              !controller.isApplying, controller.outcomes.isEmpty else { return nil }
         return controller.draft?.root.leaves.first { $0.frame.contains(pointer) }?.region.id
     }
 
     private func resizeTarget(in size: CGSize) -> LayoutDividerGeometry? {
         guard let draft = controller.draft, !controller.isApplying, controller.outcomes.isEmpty,
-              !controller.choosingWindow, splittingRegion == nil else { return nil }
+              !controller.choosingWindow, splittingRegion == nil, cellDrag == nil else { return nil }
         if let resizeOrigin {
             return draft.root.placements().first { $0.region.id == resizeOrigin.id }
                 .flatMap { LayoutDividerGeometry($0, size: size) }
@@ -400,6 +455,7 @@ private struct LayoutDraftCanvas: View {
         GeometryReader { geometry in
             if let draft = controller.draft {
                 let resizeTarget = resizeTarget(in: geometry.size)
+                let drop = dropPreview(in: geometry.size)
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(draft.root.leaves.enumerated()), id: \.element.region.id) { index, leaf in
                         region(leaf, index: index, size: geometry.size)
@@ -451,6 +507,19 @@ private struct LayoutDraftCanvas: View {
                     if resizeTarget != nil { updateResizeCursor(resizeTarget) }
                 }
                 .onDisappear { if resizeTarget != nil { NSCursor.arrow.set() } }
+                .opacity(drop == nil ? 1 : 0.15)
+                .overlay(alignment: .topLeading) {
+                    if let drag = cellDrag {
+                        ZStack(alignment: .topLeading) {
+                            if let drop {
+                                dropOverlay(drop.draft, source: drag.source, target: drop.target, size: geometry.size)
+                            }
+                            draggedCard(drag, target: drop?.target, size: geometry.size)
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                }
             }
         }
         .coordinateSpace(name: "layoutCanvas")
@@ -458,11 +527,19 @@ private struct LayoutDraftCanvas: View {
         .accessibilityIdentifier("multiLayoutCanvas")
         .onChange(of: controller.draft?.root) { _, _ in
             if splittingRegion == nil { splitOrigin = nil }
+            cellDrag = nil
         }
         .onChange(of: controller.target?.id) { _, _ in
             splitOrigin = nil
             resizeOrigin = nil
+            cellDrag = nil
         }
+        .onChange(of: draggingCard) { _, active in if !active { endCellDrag() } }
+        .onChange(of: controller.isPresented) { _, presented in if !presented { endCellDrag() } }
+        .onChange(of: controller.displayInvalidated) { _, invalid in if invalid { endCellDrag() } }
+        .onChange(of: controller.isApplying) { _, applying in if applying { endCellDrag() } }
+        .onChange(of: controller.choosingWindow) { _, choosing in if choosing { endCellDrag() } }
+        .onDisappear { endCellDrag() }
         .onChange(of: controller.isPresented) { _, presented in
             if !presented { resizeOrigin = nil }
         }
@@ -473,7 +550,7 @@ private struct LayoutDraftCanvas: View {
         let choice = controller.draft?.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
         let hovered = hoveredRegion == leaf.region.id && !controller.isApplying && controller.outcomes.isEmpty
         let revealing = splittingRegion?.region.leafIDs.contains(leaf.region.id) == true
-        let showingControls = hovered && !controller.choosingWindow && splittingRegion == nil && resizeOrigin == nil
+        let showingControls = hovered && !controller.choosingWindow && splittingRegion == nil && resizeOrigin == nil && cellDrag == nil
         let width = leaf.frame.width * size.width
         let height = leaf.frame.height * size.height
         let compact = height < 240 || width < 240
@@ -538,6 +615,9 @@ private struct LayoutDraftCanvas: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focusable(false).accessibilityHidden(true)
+                .highPriorityGesture(cardDrag(from: leaf.region.id, size: size),
+                                     including: controller.choosingWindow ? .none : .all)
+                .help(settings.text("拖到格子中间交换窗口，拖到屏幕边缘移动格子"))
                 HStack(spacing: 0) {
                     if canClear {
                         Button { controller.clearWindow(in: leaf.region.id) } label: {
@@ -577,6 +657,113 @@ private struct LayoutDraftCanvas: View {
         .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
     }
 
+    private func dropPreview(in size: CGSize) -> (target: LayoutRegionDropTarget, draft: MultiWindowLayoutDraft)? {
+        guard let drag = cellDrag, let root = controller.draft?.root,
+              let target = LayoutRegionDropTarget.hitTest(drag.location, in: size, root: root, source: drag.source),
+              let preview = controller.previewDrop(from: drag.source, to: target) else { return nil }
+        return (target, preview)
+    }
+
+    private func cardDrag(from source: UUID, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .named("layoutCanvas"))
+            .updating($draggingCard) { _, active, _ in active = true }
+            .onChanged { value in
+                guard !controller.isApplying, controller.outcomes.isEmpty, !controller.choosingWindow,
+                      !controller.displayInvalidated, splittingRegion == nil, resizeOrigin == nil else { return }
+                cellDrag = CellDrag(source: source, location: value.location)
+                if !controller.isDraggingRegion { controller.isDraggingRegion = true }
+                NSCursor.closedHand.set()
+            }
+            .onEnded { value in
+                let target = controller.draft.flatMap {
+                    LayoutRegionDropTarget.hitTest(value.location, in: size, root: $0.root, source: source)
+                }
+                let active = cellDrag?.source == source
+                endCellDrag()
+                if active, let target {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                        controller.dropRegion(source, to: target)
+                    }
+                }
+            }
+    }
+
+    private func endCellDrag() {
+        if cellDrag != nil { NSCursor.arrow.set() }
+        cellDrag = nil
+        if controller.isDraggingRegion { controller.isDraggingRegion = false }
+    }
+
+    private func dropOverlay(_ preview: MultiWindowLayoutDraft, source: UUID,
+                             target: LayoutRegionDropTarget, size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.45)
+            ForEach(Array(preview.root.leaves.enumerated()), id: \.element.region.id) { index, leaf in
+                let choice = preview.assignments[leaf.region.id].flatMap { id in controller.windows.first { $0.id == id } }
+                let emphasized = leaf.region.id == source || target == .swap(leaf.region.id)
+                ZStack {
+                    Rectangle().fill(emphasized ? highlight.opacity(0.2) : Color.white.opacity(0.06))
+                    Rectangle().strokeBorder(emphasized ? highlight : Color.white.opacity(0.4), lineWidth: emphasized ? 3 : 1)
+                    VStack(spacing: 6) {
+                        Text(settings.text("区域 %@", String(index + 1)))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text(choice?.window.applicationName ?? settings.text("空格子"))
+                            .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        if let choice {
+                            Text(choice.window.title).font(.system(size: 12)).lineLimit(1)
+                        }
+                    }
+                    .padding(12).frame(maxWidth: 280)
+                    .foregroundStyle(.white)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(12)
+                }
+                .frame(width: leaf.frame.width * size.width, height: leaf.frame.height * size.height)
+                .offset(x: leaf.frame.minX * size.width, y: leaf.frame.minY * size.height)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func draggedCard(_ drag: CellDrag, target: LayoutRegionDropTarget?, size: CGSize) -> some View {
+        let choice = controller.draft?.assignments[drag.source].flatMap { id in controller.windows.first { $0.id == id } }
+        let hint: String
+        switch target {
+        case .swap: hint = "松手交换窗口"
+        case .move: hint = "松手移动格子"
+        case nil: hint = "拖到格子中间交换，拖到屏幕边缘移动"
+        }
+        return VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                if let icon = choice?.window.icon {
+                    Image(nsImage: icon).resizable().scaledToFit().frame(width: 28, height: 28)
+                } else {
+                    Image(systemName: "rectangle.dashed").font(.system(size: 24))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(choice?.window.applicationName ?? settings.text("空格子"))
+                        .font(.system(size: 14, weight: .semibold))
+                    if let choice { Text(choice.window.title).font(.system(size: 12)) }
+                }
+                .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "hand.draw.fill").foregroundStyle(highlight)
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(highlight.opacity(0.8), lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+            Text(settings.text(hint)).font(.system(size: 12)).multilineTextAlignment(.center)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+        }
+        .foregroundStyle(.white)
+        .frame(width: 264)
+        .position(x: min(max(140, drag.location.x), max(140, size.width - 140)),
+                  y: min(max(60, drag.location.y + 78), max(60, size.height - 60)))
+    }
+
     private func boundary(vertical: Bool, origin: CGPoint, length: CGFloat, size: CGSize,
                           resizeTarget: LayoutDividerGeometry? = nil) -> some View {
         let pointer = controller.pointer.map { CGPoint(x: $0.x * size.width - origin.x, y: $0.y * size.height - origin.y) }
@@ -585,7 +772,7 @@ private struct LayoutDraftCanvas: View {
                            tabs: boundaryTabs(vertical: vertical, origin: origin, length: length, size: size),
                            hoveredRegion: hoveredRegion,
                            pointer: pointer,
-                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil && resizeOrigin == nil,
+                           showsControls: !controller.choosingWindow && !controller.isApplying && controller.outcomes.isEmpty && splittingRegion == nil && resizeOrigin == nil && cellDrag == nil,
                            heldRegion: holdingSplitButton && splittingRegion != nil ? splitOrigin?.regionID : nil,
                            heldEdge: holdingSplitButton && splittingRegion != nil ? splitOrigin?.edge : nil,
                            resizeCenter: resizeCenter, isResizing: resizeOrigin != nil,
@@ -651,6 +838,7 @@ private struct LayoutDraftCanvas: View {
     }
 
     private func updateResizeCursor(_ divider: LayoutDividerGeometry?) {
+        if cellDrag != nil { NSCursor.closedHand.set(); return }
         guard let divider else { NSCursor.arrow.set(); return }
         (divider.vertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).set()
     }

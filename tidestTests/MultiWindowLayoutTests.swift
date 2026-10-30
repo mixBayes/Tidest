@@ -326,6 +326,30 @@ final class MultiWindowLayoutTests: XCTestCase {
         XCTAssertTrue(MultiWindowLayoutDraft(root: template.root).assignments.isEmpty)
     }
 
+    func testLayoutComparisonIgnoresRegionIDsAndEquivalentSplitOrder() {
+        for start in LayoutStartingPoint.allCases {
+            let root = start.makeRegion()
+            let copy = start.makeRegion()
+            XCTAssertNotEqual(root, copy)
+            XCTAssertTrue(root.hasSameLayout(as: copy))
+        }
+        let columns = { LayoutRegion.split(UUID(), .columns, 0.5, .leaf(UUID()), .leaf(UUID())) }
+        let grid = LayoutRegion.split(UUID(), .rows, 0.5, columns(), columns())
+        XCTAssertTrue(grid.hasSameLayout(as: LayoutStartingPoint.grid.makeRegion()))
+        XCTAssertTrue(LayoutRegion.leaf(UUID()).hasSameLayout(as: .leaf(UUID())))
+    }
+
+    func testLayoutComparisonDistinguishesDifferentPositionsAndProportions() {
+        let columns = LayoutStartingPoint.columns.makeRegion()
+        XCTAssertFalse(columns.hasSameLayout(as: LayoutStartingPoint.rows.makeRegion()))
+        XCTAssertFalse(columns.hasSameLayout(as: LayoutStartingPoint.grid.makeRegion()))
+        let resized = LayoutRegion.split(UUID(), .columns, 0.50000001, .leaf(UUID()), .leaf(UUID()))
+        XCTAssertFalse(columns.hasSameLayout(as: resized))
+        let mirrored = LayoutRegion.split(UUID(), .columns, 1.0 / 3,
+                                         .split(UUID(), .rows, 0.5, .leaf(UUID()), .leaf(UUID())), .leaf(UUID()))
+        XCTAssertFalse(mirrored.hasSameLayout(as: LayoutStartingPoint.largeLeft.makeRegion()))
+    }
+
     func testMalformedStructuresAreRejected() {
         let duplicate = UUID()
         XCTAssertFalse(LayoutRegion.split(UUID(), .rows, 0.5, .leaf(duplicate), .leaf(duplicate)).isValid)
@@ -356,6 +380,151 @@ final class MultiWindowLayoutTests: XCTestCase {
             }
             XCTAssertTrue(draft.root.isValid)
             assertTiling(draft.root)
+        }
+    }
+
+    func testDroppingInTheCenterSwapsOnlyWindowChoicesAndUndoesInOneStep() throws {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.largeLeft.makeRegion())
+        let ids = draft.root.leafIDs
+        let windows = [UUID(), UUID(), UUID()]
+        for (region, window) in zip(ids, windows) { draft.assign(window, to: region) }
+        let before = draft
+        let preview = try XCTUnwrap(draft.previewingDrop(from: ids[0], to: .swap(ids[2])))
+        XCTAssertEqual(draft, before, "Preview must not mutate the live draft or its history")
+        XCTAssertEqual(preview.root, before.root)
+        XCTAssertTrue(draft.drop(from: ids[0], to: .swap(ids[2])))
+        XCTAssertEqual(draft.assignments, [ids[0]: windows[2], ids[1]: windows[1], ids[2]: windows[0]])
+        XCTAssertTrue(draft.isComplete)
+        draft.undo()
+        XCTAssertEqual(draft, before)
+    }
+
+    func testSwappingWithAnEmptyCellMovesTheWindowWithoutDuplicatingIt() {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
+        let ids = draft.root.leafIDs
+        let window = UUID()
+        draft.assign(window, to: ids[0])
+        let before = draft
+        XCTAssertTrue(draft.drop(from: ids[0], to: .swap(ids[1])))
+        XCTAssertEqual(draft.assignments, [ids[1]: window])
+        XCTAssertFalse(draft.isComplete)
+        draft.undo()
+        XCTAssertEqual(draft, before)
+    }
+
+    func testMovingLargeLeftCellToRightPreservesItsWidthAndTheTwoSmallCellsOrder() throws {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.largeLeft.makeRegion())
+        let ids = draft.root.leafIDs
+        for id in ids { draft.assign(UUID(), to: id) }
+        let before = draft
+        XCTAssertTrue(draft.drop(from: ids[0], to: .move(.right)))
+        let frames = Dictionary(uniqueKeysWithValues: draft.root.leaves.map { ($0.region.id, $0.frame) })
+        let large = try XCTUnwrap(frames[ids[0]])
+        XCTAssertEqual(large.minX, 1.0 / 3, accuracy: 0.000001)
+        XCTAssertEqual(large.width, 2.0 / 3, accuracy: 0.000001)
+        XCTAssertEqual(large.height, 1)
+        XCTAssertEqual(frames[ids[1]], CGRect(x: 0, y: 0, width: large.minX, height: 0.5))
+        XCTAssertEqual(frames[ids[2]], CGRect(x: 0, y: 0.5, width: large.minX, height: 0.5))
+        XCTAssertEqual(draft.assignments, before.assignments)
+        XCTAssertTrue(draft.isComplete)
+        assertTiling(draft.root)
+        draft.undo()
+        XCTAssertEqual(draft, before)
+    }
+
+    func testMovingAnEmptyNestedCellToAnyEdgeKeepsEveryCellAndThePreviewMatchesCommit() throws {
+        for edge in [LayoutSplitEdge.left, .right, .top, .bottom] {
+            var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.grid.makeRegion())
+            let original = draft
+            let source = draft.root.leafIDs[0]
+            let preview = try XCTUnwrap(draft.previewingDrop(from: source, to: .move(edge)))
+            XCTAssertFalse(preview.canUndo, "Hovering a target must not add an undo step")
+            XCTAssertEqual(draft, original)
+            XCTAssertTrue(draft.drop(from: source, to: .move(edge)))
+            XCTAssertEqual(draft.root, preview.root)
+            XCTAssertEqual(Set(draft.root.leafIDs), Set(original.root.leafIDs))
+            let frame = try XCTUnwrap(draft.root.leaves.first { $0.region.id == source }?.frame)
+            switch edge {
+            case .left: XCTAssertEqual(frame, CGRect(x: 0, y: 0, width: 0.5, height: 1))
+            case .right: XCTAssertEqual(frame, CGRect(x: 0.5, y: 0, width: 0.5, height: 1))
+            case .top: XCTAssertEqual(frame, CGRect(x: 0, y: 0, width: 1, height: 0.5))
+            case .bottom: XCTAssertEqual(frame, CGRect(x: 0, y: 0.5, width: 1, height: 0.5))
+            }
+            assertTiling(draft.root)
+            draft.undo()
+            XCTAssertEqual(draft, original)
+        }
+    }
+
+    func testMovingAFullHeightColumnToTopLeavesRoomForTheOtherCells() throws {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.largeLeft.makeRegion())
+        let source = draft.root.leafIDs[0]
+        XCTAssertTrue(draft.drop(from: source, to: .move(.top)))
+        let frame = try XCTUnwrap(draft.root.leaves.first { $0.region.id == source }?.frame)
+        XCTAssertEqual(frame, CGRect(x: 0, y: 0, width: 1, height: 0.5))
+        assertTiling(draft.root)
+    }
+
+    func testMovingANinetyPercentCellToTheOppositeEdgeKeepsTheRatioWithinBounds() throws {
+        let source = LayoutRegion.leaf(UUID())
+        var draft = MultiWindowLayoutDraft(root: .split(UUID(), .columns, 0.9, source, .leaf(UUID())))
+        XCTAssertTrue(draft.drop(from: source.id, to: .move(.right)))
+        let frame = try XCTUnwrap(draft.root.leaves.first { $0.region.id == source.id }?.frame)
+        XCTAssertEqual(frame.width, 0.9, accuracy: 0.000001)
+        XCTAssertTrue(draft.root.isValid)
+        assertTiling(draft.root)
+    }
+
+    func testInvalidNoOpAndTooSmallDropsLeaveTheDraftAndHistoryUntouched() {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.grid.makeRegion())
+        let ids = draft.root.leafIDs
+        let before = draft
+        for (source, target) in [(ids[0], LayoutRegionDropTarget.swap(ids[0])),
+                                 (ids[0], .swap(ids[1])), (UUID(), .move(.left)),
+                                 (ids[0], .swap(UUID()))] {
+            XCTAssertNil(draft.previewingDrop(from: source, to: target))
+            XCTAssertFalse(draft.drop(from: source, to: target))
+            XCTAssertEqual(draft, before)
+        }
+        XCTAssertFalse(draft.drop(from: ids[0], to: .move(.right), minimumSize: CGSize(width: 0.3, height: 0.3)))
+        XCTAssertEqual(draft, before)
+        var columns = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
+        XCTAssertFalse(columns.drop(from: columns.root.leafIDs[0], to: .move(.left)))
+        XCTAssertFalse(columns.canUndo)
+        var single = MultiWindowLayoutDraft(root: .leaf(UUID()))
+        XCTAssertFalse(single.drop(from: single.root.id, to: .move(.bottom)))
+        XCTAssertFalse(single.canUndo)
+    }
+
+    func testDropHitTestingDistinguishesScreenEdgesCellCentersAndOutsideTheCanvas() {
+        let root = LayoutStartingPoint.largeLeft.makeRegion()
+        let source = root.leafIDs[0]
+        let size = CGSize(width: 1200, height: 800)
+        XCTAssertEqual(LayoutRegionDropTarget.hitTest(CGPoint(x: 1100, y: 200), in: size, root: root, source: source), .swap(root.leafIDs[1]))
+        XCTAssertEqual(LayoutRegionDropTarget.hitTest(CGPoint(x: 1190, y: 200), in: size, root: root, source: source), .move(.right))
+        XCTAssertEqual(LayoutRegionDropTarget.hitTest(CGPoint(x: 600, y: 8), in: size, root: root, source: source), .move(.top))
+        XCTAssertEqual(LayoutRegionDropTarget.hitTest(CGPoint(x: 8, y: 400), in: size, root: root, source: source), .move(.left))
+        XCTAssertEqual(LayoutRegionDropTarget.hitTest(CGPoint(x: 600, y: 800), in: size, root: root, source: source), .move(.bottom))
+        for point in [CGPoint(x: 300, y: 400), CGPoint(x: -1, y: 200), CGPoint(x: 1201, y: 400),
+                      CGPoint(x: 300, y: -1), CGPoint(x: 300, y: 801), CGPoint(x: CGFloat.nan, y: 10)] {
+            XCTAssertNil(LayoutRegionDropTarget.hitTest(point, in: size, root: root, source: source))
+        }
+    }
+
+    func testRepeatedMovesAndSwapsKeepAllWindowChoicesAndNeverCreateGapsOrOverlaps() {
+        var draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.grid.makeRegion())
+        let ids = draft.root.leafIDs
+        for id in ids { draft.assign(UUID(), to: id) }
+        let windows = Set(draft.assignments.values)
+        for index in 0..<100 {
+            let source = ids[index % ids.count]
+            _ = draft.drop(from: source, to: .move([LayoutSplitEdge.left, .top, .right, .bottom][index / 4 % 4]),
+                           minimumSize: CGSize(width: 0.04, height: 0.04))
+            _ = draft.drop(from: source, to: .swap(ids[(index + 1) % ids.count]))
+            XCTAssertEqual(Set(draft.root.leafIDs), Set(ids))
+            XCTAssertEqual(Set(draft.assignments.values), windows)
+            XCTAssertTrue(draft.isComplete)
+            assertTiling(draft.root, in: CGRect(x: -1440, y: 33, width: 1440, height: 867))
         }
     }
 

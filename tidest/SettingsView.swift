@@ -267,7 +267,9 @@ struct SettingsView: View {
                     .frame(width: 180, height: 28)
             }
             HStack {
-                Text(settings.text("按快捷键在屏幕上排列窗口，也可从菜单栏打开。"))
+                Text(settings.text(settings.multiLayoutShortcut == nil
+                    ? "设置快捷键后，即可打开快速布局。"
+                    : "按快捷键在屏幕上排列窗口。"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button(settings.text("清除快捷键")) { multiLayoutShortcutMessage = onMultiLayoutShortcutChange(nil) }

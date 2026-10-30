@@ -24,6 +24,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     @Published private(set) var pointer: CGPoint?
     @Published private(set) var displayInvalidated = false
     @Published private(set) var isLoading = false
+    @Published var isDraggingRegion = false
     @Published var choosingWindow = false {
         didSet {
             if !choosingWindow {
@@ -107,7 +108,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     var canApply: Bool {
         guard let draft else { return false }
         return draft.isComplete && draft.root.fits(minimumSize: minimumRegionSize) && sizeConflicts.isEmpty &&
-            (previewMode || AXIsProcessTrusted()) && !displayInvalidated && !isApplying && !isLoading && outcomes.isEmpty &&
+            (previewMode || AXIsProcessTrusted()) && !displayInvalidated && !isApplying && !isLoading && !isDraggingRegion && outcomes.isEmpty &&
             draft.assignments.values.allSatisfy { id in windows.contains { $0.id == id } }
     }
 
@@ -140,6 +141,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         choosingWindow = false
         pendingEdit = nil
         dragSplit = nil
+        isDraggingRegion = false
         undoHistory.beginDraft()
         enterHeld = false
         isPresented = true
@@ -180,6 +182,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         loading?.cancel()
         loading = nil
         isPresented = false
+        isDraggingRegion = false
         pointer = nil
         choosingWindow = false
         releaseWindowPreviews()
@@ -388,6 +391,19 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         dragSplit = nil
     }
 
+    func previewDrop(from source: UUID, to target: LayoutRegionDropTarget) -> MultiWindowLayoutDraft? {
+        guard isPresented, !isApplying, outcomes.isEmpty, !choosingWindow,
+              pendingEdit == nil, !displayInvalidated else { return nil }
+        return draft?.previewingDrop(from: source, to: target, minimumSize: minimumRegionSize)
+    }
+
+    func dropRegion(_ source: UUID, to target: LayoutRegionDropTarget) {
+        guard previewDrop(from: source, to: target) != nil,
+              draft?.drop(from: source, to: target, minimumSize: minimumRegionSize) == true else { return }
+        messageKey = nil
+        dragSplit = nil
+    }
+
     func resize(_ split: UUID, ratio: Double, ended: Bool) {
         guard !isApplying, outcomes.isEmpty else { return }
         if dragSplit != split { draft?.checkpoint(); dragSplit = split }
@@ -461,16 +477,6 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
             finishOperation(showPanel: !completed)
             if completed { dismiss() }
         }
-    }
-
-    func presentUndo() {
-        guard !isApplying, undoAvailable else { return }
-        if !isPresented {
-            let previous = draft
-            present(preview: previewMode)
-            draft = previous
-        }
-        undoApplication()
     }
 
     func undoApplication() {

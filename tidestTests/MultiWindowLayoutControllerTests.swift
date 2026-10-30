@@ -28,7 +28,9 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertFalse(controller.isPresented, "A completed layout closes its preview")
         XCTAssertEqual(controller.outcomes.map(\.status), [.placed, .placed])
         XCTAssertTrue(controller.undoAvailable)
-        controller.presentUndo()
+        controller.present(preview: true)
+        XCTAssertTrue(controller.undoAvailable, "Reopening Quick layout keeps the toolbar's Revert action available")
+        controller.undoApplication()
         await finish(controller)
         XCTAssertEqual(controller.outcomes.map(\.status), [.restored, .restored])
         XCTAssertFalse(controller.undoAvailable)
@@ -165,6 +167,39 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertFalse(controller.undoAvailable)
         controller.undoDraft()
         XCTAssertEqual(controller.draft, before)
+    }
+
+    func testDroppingCellsOnlyEditsTheDraftAndKeepsEveryWindowUntilExplicitApply() throws {
+        let controller = try makeController()
+        controller.present(preview: true)
+        defer { controller.dismiss() }
+        controller.request(.replace(LayoutStartingPoint.largeLeft.makeRegion()))
+        let ids = try XCTUnwrap(controller.draft?.root.leafIDs)
+        for (region, choice) in zip(ids, controller.windows) {
+            controller.selectRegion(region)
+            controller.chooseWindow(choice.id)
+        }
+        let before = try XCTUnwrap(controller.draft)
+        let preview = try XCTUnwrap(controller.previewDrop(from: ids[0], to: .move(.right)))
+        XCTAssertEqual(controller.draft, before)
+        controller.dropRegion(ids[0], to: .move(.right))
+        XCTAssertEqual(controller.draft?.root, preview.root)
+        XCTAssertEqual(controller.draft?.assignments, before.assignments)
+        XCTAssertTrue(controller.canApply)
+        XCTAssertTrue(controller.outcomes.isEmpty)
+        XCTAssertFalse(controller.undoAvailable)
+        XCTAssertNil(controller.pendingEdit)
+        controller.isDraggingRegion = true
+        XCTAssertFalse(controller.canApply, "Return must not apply the old draft while a card is still being dragged")
+        controller.apply()
+        XCTAssertTrue(controller.outcomes.isEmpty)
+        controller.isDraggingRegion = false
+        controller.undoDraft()
+        XCTAssertEqual(controller.draft, before)
+        controller.dropRegion(ids[0], to: .swap(ids[1]))
+        XCTAssertEqual(controller.draft?.root, before.root)
+        XCTAssertEqual(controller.draft?.assignments[ids[1]], before.assignments[ids[0]])
+        XCTAssertTrue(controller.outcomes.isEmpty)
     }
 
     private func makeController() throws -> MultiWindowLayoutController {

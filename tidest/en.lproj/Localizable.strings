@@ -245,10 +245,8 @@
 "窗口定位快捷键" = "Window positioning shortcut";
 "Option + Q · 窗口定位" = "Option + Q · Window positioning";
 "这个快捷键用于窗口定位，请选择其他快捷键。" = "This shortcut is used for window positioning. Choose another.";
-"快速布局…" = "Quick layout…";
 "未设置" = "Not set";
 "选择结构，为每个区域分配窗口，再一起应用" = "Choose a structure, assign windows, then apply";
-"默认未设置，可从菜单栏打开快速布局。" = "No default shortcut. Open Quick layout from the menu bar.";
 "清除快捷键" = "Clear shortcut";
 "左右两栏" = "Two columns";
 "上下两栏" = "Two rows";
@@ -297,6 +295,8 @@
 "正在应用…" = "Applying…";
 "应用布局" = "Apply";
 "模板名称" = "Template name";
+"模板 %@" = "Template %@";
+"该布局已存在：%@" = "This layout already exists: %@";
 "请输入不重复的名称，最多 60 个字符。" = "Enter a unique name, up to 60 characters.";
 "保存" = "Save";
 "区域 %@" = "Region %@";
@@ -307,11 +307,9 @@
 "方向键选择，Enter 确认，Esc 返回。" = "Arrow keys to choose, Enter to select, Esc to return.";
 "刷新窗口" = "Refresh windows";
 "没有可用窗口。仅支持当前桌面上可移动、可缩放的普通窗口。" = "No available windows. Use movable, resizable standard windows on the current desktop.";
-"从菜单栏打开快速布局，选择布局起点" = "Open Quick layout from the menu bar and choose a starting layout";
 "分割区域、调整比例，为每格选择窗口" = "Split regions, adjust proportions, and choose a window for each cell";
 "确认目标显示器，点击应用布局" = "Confirm the target display and click Apply layout";
 "预览期间窗口保持原位。模板只保存结构；回退可尽力还原窗口。" = "Windows stay in place during preview. Templates save structure; Revert tries to restore the previous window positions.";
-"菜单栏 → 快速布局" = "Menu bar → Quick layout";
 "预览草稿" = "Draft preview";
 "区域过小，无法继续分割。" = "Region is too small to split further.";
 "可继续左右或上下分割、拖动分隔线；尺寸限制由当前空间决定。" = "Split into columns or rows and drag dividers. Limits depend on available space.";
@@ -320,7 +318,6 @@
 "窗口已失效，请重新选择。" = "Window unavailable. Choose again.";
 "已分配到区域 %@" = "Assigned to region %@";
 "再次应用将替换最近一次可撤销操作。" = "Applying again replaces the most recent undo operation.";
-"撤销上次快速布局" = "Undo last Quick layout";
 
 /* Full-screen quick layout */
 "布局" = "Layouts";
@@ -330,9 +327,10 @@
 "垂直分裂" = "Split into left and right";
 "点击格子选窗口，拖动分隔线调整大小。" = "Click a region to choose a window. Drag dividers to resize.";
 "在屏幕上划分区域，一次排列多个窗口" = "Divide your screen and arrange several windows at once";
-"按快捷键在屏幕上排列窗口，也可从菜单栏打开。" = "Use the shortcut to arrange windows on screen, or open from the menu bar.";
+"按快捷键在屏幕上排列窗口。" = "Use the shortcut to arrange windows on screen.";
+"设置快捷键后，即可打开快速布局。" = "Set a shortcut to open Quick layout.";
+"先在“设置 → 窗口”中设置快捷键" = "Set a shortcut in Settings → Windows first";
 "按 %@，在屏幕上打开布局" = "Press %@ to open the layout on screen";
-"从菜单栏打开快速布局" = "Open Quick layout from the menu bar";
 "拖动分隔线、点击边缘分裂，为格子选择窗口" = "Drag dividers, split at the edges, and choose a window for each region";
 "点击左上方的应用，显示排列好的窗口" = "Click Apply near the top left to show the arranged windows";
 "删除格子" = "Delete region";
@@ -340,3 +338,11 @@
 "重置" = "Reset";
 "回退" = "Revert";
 "格子太小，请删除格子或拖动分隔线调整大小。" = "Regions are too small. Delete a region or drag a divider to resize.";
+
+/* Drag regions */
+"点击格子选窗口，拖动卡片交换或移动格子。" = "Click a region to choose a window. Drag its card to swap windows or move the region.";
+"拖到格子中间交换窗口，拖到屏幕边缘移动格子" = "Drag to another region to swap windows, or to a screen edge to move the region";
+"空格子" = "Empty region";
+"松手交换窗口" = "Release to swap windows";
+"松手移动格子" = "Release to move the region";
+"拖到格子中间交换，拖到屏幕边缘移动" = "Drag to a region to swap, or to a screen edge to move";

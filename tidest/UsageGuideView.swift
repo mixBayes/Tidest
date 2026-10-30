@@ -44,7 +44,7 @@ private enum UsageTopic: String, CaseIterable {
                     settings.text("窗口自动移到所选位置")]
         case .multiLayout:
             return [self.shortcut(settings).map { settings.text("按 %@，在屏幕上打开布局", $0.displayName) }
-                        ?? settings.text("从菜单栏打开快速布局"),
+                        ?? settings.text("先在“设置 → 窗口”中设置快捷键"),
                     settings.text("拖动分隔线、点击边缘分裂，为格子选择窗口"),
                     settings.text("点击左上方的应用，显示排列好的窗口")]
         case .docking:
@@ -158,12 +158,12 @@ struct UsageGuideView: View {
                     .accessibilityValue("\(Int((progress * 100).rounded()))%")
                     .accessibilityIdentifier("usageProgress")
                     HStack(spacing: 10) {
-                        Text(topic.shortcut(settings)?.symbolDisplayName ?? settings.text("菜单栏 → 快速布局"))
+                        Text(topic.shortcut(settings)?.symbolDisplayName ?? settings.text("未设置"))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                            .accessibilityLabel(topic.shortcut(settings)?.displayName ?? settings.text("菜单栏 → 快速布局"))
+                            .accessibilityLabel(topic.shortcut(settings)?.displayName ?? settings.text("未设置"))
                             .accessibilityIdentifier("usageShortcut")
                         Text("0:\(String(format: "%02d", Int(progress * UsageTimeline.duration))) / 0:09")
                             .font(.system(size: 11).monospacedDigit())

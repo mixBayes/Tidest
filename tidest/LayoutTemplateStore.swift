@@ -22,6 +22,18 @@ final class LayoutTemplateStore: ObservableObject {
         templates = decoded
     }
 
+    func suggestedName(using makeName: (Int) -> String) -> String {
+        var number = 1
+        while templates.contains(where: { $0.name.localizedCaseInsensitiveCompare(makeName(number)) == .orderedSame }) {
+            number += 1
+        }
+        return makeName(number)
+    }
+
+    func matchingTemplate(for root: LayoutRegion) -> LayoutTemplate? {
+        templates.first { $0.root.hasSameLayout(as: root) }
+    }
+
     @discardableResult
     func save(name: String, root: LayoutRegion, replacing id: UUID? = nil) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,7 +44,12 @@ final class LayoutTemplateStore: ObservableObject {
         if let id {
             guard let index = updated.firstIndex(where: { $0.id == id }) else { return false }
             updated[index].name = name
-        } else { updated.append(LayoutTemplate(name: name, root: root)) }
+        } else {
+            guard root.leafIDs.count > 1,
+                  !LayoutStartingPoint.allCases.contains(where: { $0.makeRegion().hasSameLayout(as: root) }),
+                  matchingTemplate(for: root) == nil else { return false }
+            updated.append(LayoutTemplate(name: name, root: root))
+        }
         return commit(updated)
     }
 
