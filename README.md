@@ -2,18 +2,16 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Website](https://tidest.app/en/) · [Download](https://tidest.app/en/download/) · [Mac Window Managers Compared](https://tidest.app/en/guides/free-mac-window-managers/)
 
-**Tidest is a free, open-source macOS window manager that combines per-window switching (`Option + Tab`), 3×3 grid snapping (`Option + Q`), a multi-window layout canvas (`Option + Shift + Q`), and a slide-out Window Dock (`Option + W`) with Keep support to reopen closed Finder folders, Terminal directories, and Safari or Chrome tabs.**
+Tidest is a free, open-source macOS window manager for switching, arranging, and docking windows.
 
-Choose the exact window you need, including several windows from the same app or different folders open in Finder. Runs natively on Apple silicon and Intel Macs with macOS 14 Sonoma or later. See [how Tidest compares with Rectangle, AltTab, Loop, Moom, Magnet, AeroSpace, and macOS built-in tiling](https://tidest.app/en/guides/free-mac-window-managers/).
-
-The release workflow builds Developer ID signed, Apple notarized packages with verifiable build provenance for immutable GitHub releases. See [release setup and download verification](docs/RELEASING.md) for setup requirements and verification commands.
+Choose individual windows, arrange them on screen, and keep frequently used folders and tabs within reach. Runs natively on Apple silicon and Intel Macs with macOS 14 Sonoma or later.
 
 ## Features
 
 - **Switch windows:** browse horizontal previews or a scrollable tile view using the keyboard, trackpad, or mouse.
 - **Single-window layout:** place the window under your pointer in a half, quarter, or the full available screen area.
 - **Combined layout:** open a translucent fullscreen overlay, split regions directly on your screen, drag shared dividers, choose windows, and apply together.
-- **Dock window:** keep window previews at either screen edge, reorder them, and choose which ones stay available after closing.
+- **Dock window:** keep previews at either screen edge. Enable **Keep** to reopen closed Finder folders, macOS Terminal directories, and Safari or Chrome tabs.
 - **Make it yours:** customize shortcuts and choose English, Simplified Chinese, Traditional Chinese, Japanese, or Korean. Combined layout defaults to Option + Shift + Q.
 
 ## Get started
@@ -58,31 +56,23 @@ The panel stays open after you release Option. Press Esc or click outside to can
 
 ### Combined layout
 
-Press **Option + Shift + Q** to open a translucent fullscreen overlay. Customize the shortcut in **Settings → Windows**. The menu bar shows the current shortcut as a non-clickable reminder. If you clear the shortcut, set one again in Settings to open Combined layout. Existing Option + Q and custom positioning shortcuts keep their behavior.
+Press **Option + Shift + Q** to arrange several windows together. The layout opens on the screen under your pointer; to use another display, close it, move your pointer there, and reopen it.
 
-1. Regions appear directly on the display under your pointer, starting with two columns. The upper-left toolbar shows thumbnails for a blank layout, four starting layouts, and saved templates. Hover to see names and scroll horizontally when needed. To use another display, close Combined layout, move your pointer there, and reopen it.
-2. Move near a shared divider to reveal a circular drag handle and highlight its line. The handle follows your pointer along the divider and shows two arrows separated by a dashed line. Drag to resize regions while keeping the usable screen area filled. Split buttons take priority in their nearby areas. Buttons on horizontal edges split a region into rows; buttons on vertical edges split it into columns.
-3. Hover over a region to highlight it. Soft guides mark the midpoint of each edge. Moving near a guide reveals its split button in a rounded inward curve; moving away retracts it. The original straight border stays visible. Buttons brighten on hover and respond when pressed. When splitting, a light at the curve’s tip separates into two points that follow the existing curve and border to its ends. Only then does the button retract and the new divider move into position. The new cards then fade in. The delete button fades in and out at the upper right of the central card. Click the region to open its window picker. Search by app or window title, use arrow keys and Enter to select, or Esc to close the picker. Each window can occupy only one region.
-4. Once every region has a valid window, click **Apply** near the upper left or press **Enter** once to arrange and reveal all selected windows. **Cancel** and **Apply** form a separate group beside the original toolbar. **Cancel** or **Esc** discards the draft. Enter in the picker only selects its window; release the key and press Enter again to apply the layout.
-5. **Reset**, **Save template**, **Save current group**, and **Revert** appear as icons beside the layout thumbnails, with names on hover. **Reset** restores the default two columns and clears the draft's window choices. **Revert** tries to restore the window positions from before the last application; it is disabled when there is nothing to restore.
+1. Choose a starting layout or a saved template from the toolbar.
+2. Split regions using their edge buttons, and drag shared dividers to adjust their sizes. A split adds an empty region on the clicked side and keeps the existing window on the other side.
+3. Click each region to choose a window. Search by app or title, then use the arrow keys and Enter, or click a window. Hover or move the keyboard selection to see a preview. Each window can be chosen once.
+4. Drag a region’s central card onto another to swap their window choices, or to a screen edge to move the region. **Clear window choice** keeps the region; **Delete region** removes it and lets its neighbors fill the space.
+5. When every region has a window, click **Apply** or press **Enter** to arrange and reveal them together. Enter inside the picker only chooses a window; release it and press again to apply. **Cancel** or **Esc** discards the draft without moving real windows.
 
-Hovering over a window starts a snapshot immediately and shows it beside the picker after 120 ms. Arrow keys also update the preview, with a crossfade between windows. The 320 × 240 pt preview preserves the window's proportions, stays vertically centered beside the picker with a 12 pt gap, and uses the left side when the right side has insufficient room. Snapshots are reused throughout the current Combined layout session, including list refreshes and choosing windows for other regions. Closing Combined layout releases the cache asynchronously. Windows without a snapshot remain selectable.
+**Reset** starts over with two empty columns. **Revert** tries to restore positions from the last application; it does not reopen closed windows. Windows with size limits are placed as close as possible to the target, while windows that cannot be operated are skipped so the others can continue. If the display configuration changes, reopen the layout on the intended screen.
 
-Drag the central card of a region onto another region to swap window choices, or to the left, right, top, or bottom screen edge to move the whole region. The remaining regions expand to fill the space. Empty regions can move too, and window choices stay with moved regions. A preview shows the result before release; releasing outside the layout cancels. Moving the large left region to the right keeps its width and the two small regions' top-to-bottom order. When changing direction, a region that previously spanned the whole dimension takes half the space. Arrangements with insufficient space do not accept the drop.
+**Save template** stores the layout’s name, split structure, and proportions. Duplicate layouts are highlighted instead of saved again. Right-click a saved template to rename or delete it. Changing layouts asks before clearing existing window choices.
 
-Hover over an assigned region to reveal **Clear window choice**, which clears only that region's choice while preserving the region. Use **Delete region** to remove the region itself. The adjacent region or group expands to fill the space, preserving the remaining window choices. The final region cannot be deleted.
+**Save current group** saves the layout and its window choices as one kept dock item. Clicking it restores the group, using the dock’s supported reopening behavior for closed windows. Groups survive Tidest restarts. Saving a template or group leaves real windows in place.
 
-Editing, choosing windows, resetting, and saving templates leave real windows in place. Esc in the main preview cancels. Clicking an edge’s split button adds an empty region on that side and keeps the original window in the opposite half, without confirmation. Changing layouts or templates asks before clearing existing window choices; ratio changes retain assignments.
+Combined layout uses movable, resizable windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. Without Screen Recording permission, app icons and titles remain available. Animations respect macOS **Reduce Motion**.
 
-**Save template** suggests an available name such as “Template 1”, which you can change. If the layout matches a starting layout or a saved template, its thumbnail is highlighted and a brief message appears instead of saving another copy. Templates store only a name, split structure, and normalized ratios, excluding apps, windows, titles, paths, and display identities. Right-click a template thumbnail in the toolbar to rename or delete it. Splitting depends on the actual usable screen area; delete a region or drag a divider when regions are too small.
-
-Candidates are movable, resizable standard windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. App icons and titles work without Screen Recording permission.
-
-Before applying, Tidest rechecks window identity, permissions, and display configuration. Each region's highlight expands from its central window card while the windows are arranged, then fades out at the actual window position. Windows with size limits are placed as close as possible to their target regions. Windows that cannot be resized or operated are silently skipped while the remaining windows are arranged. The preview closes when the operation finishes, without a results or retry dialog. Reopen Combined layout with its shortcut and choose **Revert** from the toolbar to restore the previous positions. Revert tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous restoration record.
-
-Disconnecting or reconfiguring displays stops further placement and requires explicit target confirmation. Undo blocks stale coordinates after a display configuration change. See the [macOS validation checklist](docs/QUICK_LAYOUT_VALIDATION.md) for remaining platform verification.
-
-Saving a template shrinks the grid into its toolbar thumbnail. **Save current group** becomes available after every cell has a window. It saves the grid proportions and window assignments as one pinned dock item: the dock slides out, then the group preview flies into it. Groups survive Tidest restarts; clicking one restores its windows to the saved cells, using the dock’s existing reopening support for closed windows. Saving does not move real windows. With Reduce Motion enabled, both save animations use a fade.
+Preview timing, animation details, geometry rules, and platform checks are documented in the [implementation and validation notes](docs/QUICK_LAYOUT_VALIDATION.md).
 
 ### Dock window
 
@@ -169,6 +159,8 @@ xcodebuild -project tidest.xcodeproj -scheme tidest -configuration Debug \
 The app is built at `/tmp/tidest-build/Build/Products/Debug/tidest.app`.
 
 Tidest uses SwiftUI and AppKit, with Accessibility for window control and ScreenCaptureKit for previews. App Sandbox is disabled to support controlling other apps' windows; Hardened Runtime remains enabled. Public distribution requires a Developer ID signature and notarization.
+
+The release workflow builds Developer ID-signed, Apple-notarized packages with verifiable build provenance for immutable GitHub releases. See [release setup and download verification](docs/RELEASING.md) for setup requirements and verification commands.
 
 ### Tests and UI previews
 
