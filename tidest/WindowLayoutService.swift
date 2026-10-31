@@ -44,7 +44,9 @@ final class WindowLayoutService {
         }
         // Take this snapshot before suspending: the window under the shortcut's
         // mouse position must not come from the switcher's cached catalogue.
-        let windows = Self.screenWindows()
+        let windows = Self.excludingSystemOverlays(from: Self.screenWindows(), screens: screens) {
+            NSRunningApplication(processIdentifier: $0)?.bundleIdentifier
+        }
         guard let front = Self.selectSnapshot(at: point, in: windows,
                                               ownProcessID: ProcessInfo.processInfo.processIdentifier) else {
             if let blocked = windows.first(where: { $0.frame.contains(point) }) {
@@ -111,6 +113,19 @@ final class WindowLayoutService {
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         return Task.isCancelled ? (.unavailable, nil) : result
+    }
+
+    nonisolated static func excludingSystemOverlays(from windows: [ScreenWindow], screens: [CGRect],
+                                                     bundleIdentifier: (pid_t) -> String?) -> [ScreenWindow] {
+        windows.filter { window in
+            // Recording exposes the system cursor as a window. Screenshot also
+            // leaves a transparent, display-sized window at the menu-bar level.
+            // Neither blocks input; exclude both from selection AND occlusion.
+            if window.layer == CGWindowLevelForKey(.cursorWindow) { return false }
+            guard window.layer == CGWindowLevelForKey(.mainMenuWindow),
+                  screens.contains(where: { sameFrame(window.frame, $0) }) else { return true }
+            return bundleIdentifier(window.processID) != "com.apple.screencaptureui"
+        }
     }
 
     // A front panel which cannot be laid out still blocks selection of the

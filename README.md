@@ -78,7 +78,7 @@ Editing, choosing windows, resetting, and saving templates leave real windows in
 
 Candidates are movable, resizable standard windows on the current desktop, including connected displays. Minimized windows, native fullscreen windows, other Spaces, and Tidest panels are excluded. App icons and titles work without Screen Recording permission.
 
-Before applying, Tidest rechecks window identity, permissions, display configuration, and any reported minimum size. Unreported application limits are checked after execution. Operations can partially succeed; results identify each window, and **Retry failed windows** touches only failures. Full success closes preview; reopen Combined layout with its shortcut and choose **Revert** from the toolbar to restore the previous positions. Partial results also allow **Revert** from the toolbar. Revert tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous restoration record.
+Before applying, Tidest rechecks window identity, permissions, and display configuration. Each region's highlight expands from its central window card while the windows are arranged, then fades out at the actual window position. Windows with size limits are placed as close as possible to their target regions. Windows that cannot be resized or operated are silently skipped while the remaining windows are arranged. The preview closes when the operation finishes, without a results or retry dialog. Reopen Combined layout with its shortcut and choose **Revert** from the toolbar to restore the previous positions. Revert tries to restore the last changed windows and never reopens closed ones. A new application replaces the previous restoration record.
 
 Disconnecting or reconfiguring displays stops further placement and requires explicit target confirmation. Undo blocks stale coordinates after a display configuration change. See the [macOS validation checklist](docs/QUICK_LAYOUT_VALIDATION.md) for remaining platform verification.
 
@@ -193,7 +193,7 @@ Debug builds provide UI preview arguments for development. These previews use sa
 | Update states | `--ui-preview-about --ui-preview-update=<state>`, where state is `checking`, `up-to-date`, `available`, `failed`, or `download-failed`; uses sample responses and never opens a browser |
 | Window switcher | `--ui-preview-switcher`; optionally `--ui-preview-tiled`, `--ui-preview-count=150`, `--ui-preview-thumbnails`, or `--ui-preview-refresh` |
 | Single-window layout | `--ui-preview-layout`; optionally `--ui-preview-layout-constrained` |
-| Combined layout | `--ui-preview-multi-layout`; optionally `--ui-preview-multi-layout-partial` for partial failure feedback |
+| Combined layout | `--ui-preview-multi-layout`; add `--ui-preview-multi-layout-partial`, `--ui-preview-multi-layout-denied`, or `--ui-preview-multi-layout-size-limits` to check silent skipping |
 | Dock window | `--ui-preview-pinned`; optionally `--ui-preview-count=20` |
 | Preview language | `--ui-preview-language=<code>`, where code is `en`, `zh-Hans`, `zh-Hant`, `ja`, or `ko` |
 | Enabled permissions in Settings preview | `--ui-preview-granted-accessibility` and `--ui-preview-granted-screen` |

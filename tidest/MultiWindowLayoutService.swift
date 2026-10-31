@@ -46,17 +46,6 @@ nonisolated struct LayoutWindowOutcome: Identifiable, Sendable {
     enum Status: String, Sendable {
         case placed, restored, constrained, unavailable, notAttempted, displayChanged, permissionDenied
         var isSuccess: Bool { self == .placed || self == .restored }
-        var titleKey: String {
-            switch self {
-            case .placed: "已排列"
-            case .restored: "已还原"
-            case .constrained: "窗口尺寸受限，请调整区域后重试。"
-            case .unavailable: "窗口已关闭或暂时无法操作。"
-            case .notAttempted: "未执行，请先处理其他窗口的问题。"
-            case .displayChanged: "显示器配置已变化，请重新确认目标显示器。"
-            case .permissionDenied: "辅助功能权限已失效，请在系统设置中重新开启。"
-            }
-        }
     }
     let choice: LayoutWindowChoice
     let requested: CGRect
@@ -178,16 +167,11 @@ final class MultiWindowLayoutService {
             if let frame = result.frame { preflight[choice.id] = frame }
             if let status = result.failure { failures[choice.id] = status }
         }
-        if !restoring && !failures.isEmpty {
-            return LayoutBatchResult(outcomes: requests.map {
-                LayoutWindowOutcome(choice: $0.0, requested: $0.1, actual: preflight[$0.0.id], status: failures[$0.0.id] ?? .notAttempted)
-            }, originals: [])
-        }
         var outcomes: [LayoutWindowOutcome] = []
         var originals: [LayoutWindowRestore] = []
         for (choice, requested) in requests {
             let status: LayoutWindowOutcome.Status
-            var actual: CGRect?
+            var actual = preflight[choice.id]
             if let failure = failures[choice.id] { status = failure }
             else if Task.isCancelled { status = .notAttempted }
             else if LayoutDisplay.current() != topology { status = .displayChanged }
@@ -199,7 +183,7 @@ final class MultiWindowLayoutService {
                     let inspection = Self.inspect(choice, requested: requested)
                     if let failure = inspection.failure { return (failure, inspection.frame, nil) }
                     guard let original = inspection.frame else { return (.unavailable, nil, nil) }
-                    let result = await WindowLayoutService.performLayout(.full, in: requested,
+                    let result = await Self.performPlacement(in: requested,
                         readFrame: { AXAccess.frame(choice.window.element) },
                         isSettable: { Self.isSettable(choice.window.element, $0) },
                         setSize: {
@@ -220,8 +204,7 @@ final class MultiWindowLayoutService {
                     else if !AXIsProcessTrusted() { status = .permissionDenied }
                     else {
                         switch result {
-                        case .exact: status = restoring ? .restored : .placed
-                        case .constrained: status = .constrained
+                        case .exact, .constrained: status = restoring ? .restored : .placed
                         case .unavailable: status = .unavailable
                         }
                     }
@@ -231,7 +214,7 @@ final class MultiWindowLayoutService {
                 status = result.0
                 actual = result.1
                 if result.2 != nil, let original = preflight[choice.id],
-                   !status.isSuccess || result.1 == nil || !Self.sameFrame(result.1!, original) {
+                   result.1 == nil || !Self.sameFrame(result.1!, original) {
                     originals.append(LayoutWindowRestore(choice: choice, frame: original))
                 }
             }
@@ -241,6 +224,18 @@ final class MultiWindowLayoutService {
             outcomes.append(LayoutWindowOutcome(choice: choice, requested: requested, actual: actual, status: status))
         }
         return LayoutBatchResult(outcomes: outcomes, originals: originals)
+    }
+
+    // Skip windows that cannot resize. Resizable windows keep the closest
+    // placement their application allows, even when it has size limits.
+    nonisolated static func performPlacement(in requested: CGRect,
+        readFrame: () -> CGRect?, isSettable: (String) -> Bool?,
+        setSize: (CGSize) -> AXError, setPosition: (CGPoint) -> AXError,
+        pause: () async -> Bool) async -> WindowLayoutResult {
+        guard let resizable = isSettable(kAXSizeAttribute) else { return .unavailable }
+        guard resizable else { return .unavailable }
+        return await WindowLayoutService.performLayout(.full, in: requested, readFrame: readFrame,
+            isSettable: isSettable, setSize: setSize, setPosition: setPosition, pause: pause)
     }
 
     private func identityMatches(_ choice: LayoutWindowChoice) -> Bool {
@@ -258,11 +253,6 @@ final class MultiWindowLayoutService {
               let number = choice.window.captureID, onScreenWindows()[number] == choice.window.processID,
               isOperable(choice.window), AXAccess.windowID(choice.window.element) == number,
               let frame = AXAccess.frame(choice.window.element) else { return (nil, .unavailable) }
-        // AXMinSize is optional. Unsupported limits are detected by post-write geometry verification.
-        if let size = minimumSize(choice.window.element),
-           size.width > requested.width + 2 || size.height > requested.height + 2 {
-            return (frame, .constrained)
-        }
         return (frame, nil)
     }
 

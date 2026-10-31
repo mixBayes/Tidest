@@ -32,6 +32,7 @@ final class MultiWindowLayoutControllerTests: XCTestCase {
         XCTAssertTrue(controller.undoAvailable, "Reopening Quick layout keeps the toolbar's Revert action available")
         controller.undoApplication()
         await finish(controller)
+        XCTAssertFalse(controller.isPresented, "Restoration also finishes without a results panel")
         XCTAssertEqual(controller.outcomes.map(\.status), [.restored, .restored])
         XCTAssertFalse(controller.undoAvailable)
     }

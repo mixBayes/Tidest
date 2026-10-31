@@ -36,12 +36,6 @@ struct MultiWindowLayoutView: View {
                     .frame(width: max(0, area.width - 40), alignment: .leading)
                     .offset(x: area.minX + 20, y: area.minY + 16)
                 LayoutWindowSelection(controller: controller, settings: settings, placement: pickerPlacement(in: area), area: area)
-                if !controller.outcomes.isEmpty {
-                    results.padding(18)
-                        .frame(width: min(390, area.width - 40), height: min(450, area.height - 120))
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .position(x: area.midX, y: area.midY)
-                }
                 feedback
                     .frame(width: max(0, area.width - 40))
                     .offset(x: area.minX + 20, y: area.maxY - 62)
@@ -73,6 +67,9 @@ struct MultiWindowLayoutView: View {
             }
             .coordinateSpace(name: "layoutEditor")
             .onPreferenceChange(LayoutTemplateFrameKey.self) { templateFrames = $0 }
+            .onPreferenceChange(LayoutWindowCardFramesKey.self) { frames in
+                MainActor.assumeIsolated { controller.windowCardFrames = frames }
+            }
             .task(id: animateTemplate?.id) {
                 guard let template = animateTemplate else { return }
                 defer { templateFlight = nil; highlightedTemplate = nil }
@@ -209,8 +206,6 @@ struct MultiWindowLayoutView: View {
                 Text(settings.text("正在保存组合…"))
             } else if controller.hasSmallRegions {
                 Text(settings.text("格子太小，请删除格子或拖动分隔线调整大小。" )).foregroundStyle(.orange)
-            } else if !controller.sizeConflicts.isEmpty {
-                Text(settings.text("窗口尺寸受限，请调整区域后重试。")).foregroundStyle(.orange)
             } else if controller.canApply && !controller.choosingWindow {
                 Text(settings.text("按 Enter 应用布局，按 Esc 取消。"))
             } else if !controller.choosingWindow && controller.outcomes.isEmpty {
@@ -308,30 +303,6 @@ struct MultiWindowLayoutView: View {
         .id(identifier)
     }
 
-    private var results: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(settings.text("每个窗口的执行结果")).font(.headline)
-                ForEach(controller.outcomes) { outcome in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(outcome.choice.window.applicationName).font(.callout.bold())
-                        Text(outcome.choice.window.title).font(.caption).lineLimit(2)
-                        Label(settings.text(outcome.status.titleKey), systemImage: outcome.status.isSuccess ? "checkmark.circle" : "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(outcome.status.isSuccess ? Color.green : Color.orange)
-                    }
-                }
-                if controller.canRetry {
-                    Button(settings.text("重试失败窗口")) { controller.apply(retryFailed: true) }
-                        .accessibilityIdentifier("multiLayoutRetry")
-                }
-                Button(settings.text("继续编辑")) { controller.continueEditing() }
-                    .accessibilityIdentifier("multiLayoutContinueEditing")
-            }.padding(2)
-        }.disabled(controller.isApplying)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("multiLayoutResults")
-    }
-
     private func beginNaming(_ template: LayoutTemplate?) {
         if template == nil, let root = controller.draft?.root, showDuplicateLayout(for: root) { return }
         duplicateNotice = nil
@@ -386,6 +357,13 @@ private struct LayoutTemplateFrameKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+nonisolated private struct LayoutWindowCardFramesKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
 
@@ -756,6 +734,12 @@ private struct LayoutDraftCanvas: View {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: showingControls)
             }
             .frame(width: cardWidth, height: cardHeight)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: LayoutWindowCardFramesKey.self,
+                        value: [leaf.region.id: geometry.frame(in: .named("layoutEditor"))])
+                }
+            }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("multiLayoutCard-\(index)")
             .opacity(revealing ? 0 : 1)
@@ -795,9 +779,6 @@ private struct LayoutDraftCanvas: View {
                             .foregroundStyle(emphasized ? highlight : .white.opacity(0.88))
                         Text(settings.text(draft.assignments[region] == nil ? "选择窗口" : "窗口已失效，请重新选择。"))
                             .font(.system(size: 14, weight: .medium))
-                    }
-                    if controller.sizeConflicts.contains(region) {
-                        Text(settings.text("窗口尺寸受限，请调整区域后重试。" )).font(.caption).foregroundStyle(.orange)
                     }
                 }
                 .padding(10).frame(maxWidth: .infinity)

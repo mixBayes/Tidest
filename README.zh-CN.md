@@ -80,7 +80,7 @@ macOS 菜单栏工具，用于切换窗口、快速排列窗口，以及把常�
 
 仅支持当前桌面中可移动、可缩放的普通窗口，可从已连接显示器选窗后统一排到目标显示器。最小化窗口、原生全屏窗口、其他 Space 和 Tidest 面板不参与。缺少屏幕录制权限时仍可使用图标和标题。
 
-应用前会重新检查窗口、权限、显示器和已知最小尺寸；未知的应用限制会在执行后核验。多窗口操作可能部分成功，失败结果按窗口展示；**重试失败窗口** 只重试失败项。全部成功后关闭预览，可按快捷键重新打开组合布局，点击工具栏的 **回退** 恢复之前的位置；部分失败时也可直接点击工具栏的 **回退**。回退会尽力恢复最近一次实际改变的窗口，不重开已关闭窗口。再次应用会替换最近一次可回退操作。
+应用前会重新检查窗口、权限和显示器。各格子的高亮会从中央窗口卡片同时向外扩散，窗口同步排列，落位后高亮淡出。有尺寸限制的窗口会尽量按目标区域排列，保留调整结果；无法调整尺寸或暂时无法操作的窗口会静默跳过，其他窗口继续排列。执行结束后关闭预览，不显示结果或重试对话框。可按快捷键重新打开组合布局，点击工具栏的 **回退** 恢复之前的位置。回退会尽力恢复最近一次实际改变的窗口，不重开已关闭窗口。再次应用会替换最近一次可回退操作。
 
 显示器拔出、分辨率或工作区变化会停止继续应用，需明确重新确认目标。撤销时原显示器配置变化会阻止使用旧坐标。需要在 macOS 上完成的构建和实机验收见[开发验证清单](docs/QUICK_LAYOUT_VALIDATION.md)。
 
@@ -195,7 +195,7 @@ Debug 构建提供开发用界面预览参数。预览使用示例窗口和独�
 | 更新状态 | `--ui-preview-about --ui-preview-update=<state>`，state 可选 `checking`、`up-to-date`、`available`、`failed` 或 `download-failed`；使用示例响应，不会打开浏览器 |
 | 切换窗口 | `--ui-preview-switcher`，可附加 `--ui-preview-tiled`、`--ui-preview-count=150`、`--ui-preview-thumbnails` 或 `--ui-preview-refresh` |
 | 单窗布局 | `--ui-preview-layout`，可附加 `--ui-preview-layout-constrained` |
-| 组合布局 | `--ui-preview-multi-layout`，可附加 `--ui-preview-multi-layout-partial` 查看部分失败示例 |
+| 组合布局 | `--ui-preview-multi-layout`，可附加 `--ui-preview-multi-layout-partial`、`--ui-preview-multi-layout-denied` 或 `--ui-preview-multi-layout-size-limits` 验证静默跳过 |
 | 停靠窗口 | `--ui-preview-pinned`，可附加 `--ui-preview-count=20` |
 | 预览语言 | `--ui-preview-language=<code>`，code 可选 `en`、`zh-Hans`、`zh-Hant`、`ja` 或 `ko` |
 | 设置预览中的已开启权限 | `--ui-preview-granted-accessibility` 和 `--ui-preview-granted-screen` |

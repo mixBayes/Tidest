@@ -1116,10 +1116,8 @@ final class PinnedWindowsController {
             } else { result = await combinationLayoutService.apply(requests, topology: topology) }
             guard isCurrentEntryTask(id, token: token) else { return }
             if !previewMode { await combinationLayoutService.reveal(result.outcomes, topology: topology) }
-            if choices.count == combination.windows.count && result.outcomes.allSatisfy({ $0.status.isSuccess }) {
-                if !previewMode { statistics.record() }
-                collapse(animated: true)
-            } else { showMessage("部分窗口未能恢复，请再试一次。") }
+            if !previewMode, result.outcomes.contains(where: { $0.status.isSuccess }) { statistics.record() }
+            collapse(animated: true)
         }
         render()
     }

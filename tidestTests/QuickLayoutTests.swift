@@ -4,6 +4,80 @@ import XCTest
 @testable import tidest
 
 final class QuickLayoutTests: XCTestCase {
+    func testSystemRecordingOverlaysDoNotBlockSelectionOrHideTheWindowHighlight() throws {
+        let primary = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+        let secondary = CGRect(x: -1200, y: -200, width: 1200, height: 900)
+        let point = CGPoint(x: -600, y: 300)
+        let cursor = WindowLayoutService.ScreenWindow(id: 1, processID: 10,
+            frame: CGRect(x: point.x, y: point.y, width: 28, height: 40),
+            layer: Int(CGWindowLevelForKey(.cursorWindow)), order: 0)
+        let overlays = [primary, secondary].enumerated().map { index, frame in
+            WindowLayoutService.ScreenWindow(id: CGWindowID(index + 2), processID: 20,
+                frame: frame, layer: Int(CGWindowLevelForKey(.mainMenuWindow)), order: index + 1)
+        }
+        let application = WindowLayoutService.ScreenWindow(id: 4, processID: 30,
+            frame: CGRect(x: -1100, y: -100, width: 1000, height: 700), layer: 0, order: 3)
+        let windows = WindowLayoutService.excludingSystemOverlays(
+            from: [cursor] + overlays + [application], screens: [primary, secondary]) {
+                $0 == 20 ? "com.apple.screencaptureui" : nil
+            }
+
+        let selected = try XCTUnwrap(WindowLayoutService.selectSnapshot(at: point, in: windows, ownProcessID: 40))
+        XCTAssertEqual(selected.id, application.id)
+        let visible = QuickLayoutGeometry.visibleRegions(of: selected.frame,
+            occluders: windows.filter { $0.order < selected.order }.map(\.frame), screens: [primary, secondary])
+        XCTAssertEqual(visible, [application.frame])
+    }
+
+    func testRealPopupStillBlocksSelectionDuringRecording() {
+        let screen = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let overlay = WindowLayoutService.ScreenWindow(id: 1, processID: 20,
+            frame: screen, layer: Int(CGWindowLevelForKey(.mainMenuWindow)), order: 0)
+        let popup = WindowLayoutService.ScreenWindow(id: 2, processID: 30,
+            frame: CGRect(x: 100, y: 100, width: 200, height: 200), layer: 8, order: 1)
+        let application = WindowLayoutService.ScreenWindow(id: 3, processID: 30,
+            frame: screen, layer: 0, order: 2)
+        let windows = WindowLayoutService.excludingSystemOverlays(
+            from: [overlay, popup, application], screens: [screen]) {
+                $0 == 20 ? "com.apple.screencaptureui" : nil
+            }
+
+        XCTAssertNil(WindowLayoutService.selectSnapshot(at: CGPoint(x: 150, y: 150), in: windows, ownProcessID: 40))
+        XCTAssertEqual(WindowLayoutService.selectSnapshot(at: CGPoint(x: 500, y: 500), in: windows, ownProcessID: 40)?.id,
+                       application.id)
+        let visible = QuickLayoutGeometry.visibleRegions(of: application.frame,
+            occluders: windows.filter { $0.order < application.order }.map(\.frame), screens: [screen])
+        XCTAssertEqual(totalArea(visible), screen.width * screen.height - popup.frame.width * popup.frame.height)
+    }
+
+    func testOtherFullscreenOverlaysStillBlockSelection() {
+        let screen = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let overlay = WindowLayoutService.ScreenWindow(id: 1, processID: 20,
+            frame: screen, layer: Int(CGWindowLevelForKey(.mainMenuWindow)), order: 0)
+        let application = WindowLayoutService.ScreenWindow(id: 2, processID: 30,
+            frame: screen, layer: 0, order: 1)
+        for bundleIdentifier in ["com.example.overlay", nil] {
+            let windows = WindowLayoutService.excludingSystemOverlays(from: [overlay, application], screens: [screen]) {
+                _ in bundleIdentifier
+            }
+            XCTAssertNil(WindowLayoutService.selectSnapshot(at: CGPoint(x: 500, y: 500), in: windows, ownProcessID: 40))
+        }
+    }
+
+    func testScreenshotControlsAndPartialOverlaysStillBlockSelection() {
+        let screen = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let application = WindowLayoutService.ScreenWindow(id: 2, processID: 30,
+            frame: screen, layer: 0, order: 1)
+        for layer in [CGWindowLevelForKey(.mainMenuWindow), CGWindowLevelForKey(.screenSaverWindow) + 499] {
+            let control = WindowLayoutService.ScreenWindow(id: 1, processID: 20,
+                frame: CGRect(x: 100, y: 100, width: 800, height: 50), layer: Int(layer), order: 0)
+            let windows = WindowLayoutService.excludingSystemOverlays(from: [control, application], screens: [screen]) {
+                _ in "com.apple.screencaptureui"
+            }
+            XCTAssertNil(WindowLayoutService.selectSnapshot(at: CGPoint(x: 500, y: 125), in: windows, ownProcessID: 40))
+        }
+    }
+
     func testRightHalfCanFillTheScreenAfterAnInitiallyLimitedResize() async {
         let area = CGRect(x: 0, y: 24, width: 1200, height: 800)
         let window = LayoutWindow(frame: area, screens: [area])

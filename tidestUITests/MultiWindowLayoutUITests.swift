@@ -472,16 +472,38 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
-    func testPartialFailureShowsPerWindowResultsAndOnlyFailedWindowCanRetry() {
+    func testSizeLimitedWindowIsSkippedWithoutResultsOrRetry() {
         let app = launch(partial: true)
         assign(region: 0, windowIndex: 0, in: app)
         assign(region: 1, windowIndex: 1, in: app)
         app.buttons["multiLayoutApply"].click()
-        XCTAssertTrue(app.buttons["multiLayoutRetry"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["已排列"].exists)
-        XCTAssertTrue(app.staticTexts["窗口尺寸受限，请调整区域后重试。"].exists)
-        app.buttons["multiLayoutRetry"].click()
-        XCTAssertFalse(app.buttons["multiLayoutApply"].waitForExistence(timeout: 1))
+        XCTAssertTrue(app.buttons["multiLayoutApply"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["multiLayoutResults"].firstMatch.exists)
+        XCTAssertFalse(app.buttons["multiLayoutRetry"].exists)
+    }
+
+    @MainActor
+    func testPermissionDeniedFinishesSilentlyWithoutResultsOrRetry() {
+        let app = launch(permissionDenied: true)
+        assign(region: 0, windowIndex: 0, in: app)
+        assign(region: 1, windowIndex: 1, in: app)
+        app.buttons["multiLayoutApply"].click()
+        XCTAssertTrue(app.buttons["multiLayoutApply"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["multiLayoutResults"].firstMatch.exists)
+        XCTAssertFalse(app.buttons["multiLayoutRetry"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["multiLayoutMessage"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testKnownSizeLimitDoesNotBlockApplyingOtherWindows() {
+        let app = launch(sizeLimited: true)
+        assign(region: 0, windowIndex: 0, in: app)
+        assign(region: 1, windowIndex: 1, in: app)
+        XCTAssertTrue(app.buttons["multiLayoutApply"].isEnabled)
+        XCTAssertFalse(app.staticTexts["窗口尺寸受限，请调整区域后重试。"].exists)
+        app.buttons["multiLayoutApply"].click()
+        XCTAssertTrue(app.buttons["multiLayoutApply"].waitForNonExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["multiLayoutResults"].firstMatch.exists)
     }
 
     @MainActor
@@ -515,10 +537,12 @@ final class MultiWindowLayoutUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(partial: Bool = false) -> XCUIApplication {
+    private func launch(partial: Bool = false, permissionDenied: Bool = false, sizeLimited: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-multi-layout", "--ui-preview-language=zh-Hans"]
         if partial { app.launchArguments.append("--ui-preview-multi-layout-partial") }
+        if permissionDenied { app.launchArguments.append("--ui-preview-multi-layout-denied") }
+        if sizeLimited { app.launchArguments.append("--ui-preview-multi-layout-size-limits") }
         app.launch()
         app.activate()
         let appeared = app.buttons["multiLayoutRegion-0"].waitForExistence(timeout: 5)

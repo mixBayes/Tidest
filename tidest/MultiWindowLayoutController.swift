@@ -57,6 +57,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var undoTopology: [LayoutDisplay] = []
     private var undoHistory = LayoutUndoHistory<LayoutWindowRestore>()
     private var operation: Task<Void, Never>?
+    var windowCardFrames: [UUID: CGRect] = [:]
+    private var placementHighlights: [LayoutPlacementHighlight] = []
     private var combinationSave: Task<Void, Never>?
     private var combinationSaveID = UUID()
     private var loading: Task<Void, Never>?
@@ -65,9 +67,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
     private var refreshTimer: Timer?
     private var enterHeld = false
     private var previewMode = false
-    private var isUndoResult = false
     private var dragSplit: UUID?
-    private var previewFailureRemaining = false
+    private var previewFailure: LayoutWindowOutcome.Status?
     private let captureThumbnail: @MainActor (WindowItem) async -> NSImage?
     private var thumbnailTasks: [UUID: Task<NSImage?, Never>] = [:]
     private var thumbnails: [UUID: NSImage] = [:]
@@ -104,19 +105,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         return CGSize(width: 160 / target.layoutArea.width, height: 100 / target.layoutArea.height)
     }
 
-    var sizeConflicts: Set<UUID> {
-        guard let draft, let target else { return [] }
-        return Set(draft.root.leaves.compactMap { leaf in
-            guard let id = draft.assignments[leaf.region.id], let size = windows.first(where: { $0.id == id })?.minimumSize else { return nil }
-            return size.width > leaf.frame.width * target.layoutArea.width + 2 || size.height > leaf.frame.height * target.layoutArea.height + 2 ? leaf.region.id : nil
-        })
-    }
-
     var canApply: Bool {
         guard let draft else { return false }
-        return draft.isComplete && draft.root.fits(minimumSize: minimumRegionSize) && sizeConflicts.isEmpty &&
-            (previewMode || AXIsProcessTrusted()) && !displayInvalidated && !isApplying && !isSavingCombination && !isLoading && !isDraggingRegion && outcomes.isEmpty &&
-            draft.assignments.values.allSatisfy { id in windows.contains { $0.id == id } }
+        return draft.isComplete && draft.root.fits(minimumSize: minimumRegionSize) &&
+            !displayInvalidated && !isApplying && !isSavingCombination && !isLoading && !isDraggingRegion && outcomes.isEmpty
     }
 
     var isBusy: Bool { isApplying || isSavingCombination }
@@ -166,13 +158,19 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         }
         previewMode = preview
         #if DEBUG
-        previewFailureRemaining = preview && ProcessInfo.processInfo.arguments.contains("--ui-preview-multi-layout-partial")
+        previewFailure = nil
+        if preview {
+            if ProcessInfo.processInfo.arguments.contains("--ui-preview-multi-layout-partial") { previewFailure = .constrained }
+            if ProcessInfo.processInfo.arguments.contains("--ui-preview-multi-layout-denied") { previewFailure = .permissionDenied }
+        }
         #endif
         displays = LayoutDisplay.current()
         topology = displays
         target = displays.first { $0.frame.contains(NSEvent.mouseLocation) } ?? displays.first
         guard let target else { return }
         displayInvalidated = false
+        windowCardFrames = [:]
+        clearPlacementHighlights()
         draft = MultiWindowLayoutDraft(root: LayoutStartingPoint.columns.makeRegion())
         windows = []
         outcomes = []
@@ -229,6 +227,8 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         pointer = nil
         choosingWindow = false
         releaseWindowPreviews()
+        windowCardFrames = [:]
+        clearPlacementHighlights()
         panel?.orderOut(nil)
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
@@ -240,6 +240,7 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
 
     func stop() {
         operation?.cancel()
+        clearPlacementHighlights()
         loading?.cancel()
         service.stop()
         if !isApplying { dismiss() }
@@ -460,79 +461,103 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         choosingWindow = false
     }
 
-    func continueEditing() {
-        guard !isBusy else { return }
-        outcomes = []
-        messageKey = nil
-        undoHistory.beginDraft()
-        reloadWindows()
-    }
-
-    func apply(retryFailed: Bool = false) {
-        guard !isApplying, let draft, let target, !displayInvalidated, !isLoading,
-              draft.isComplete, retryFailed || canApply else { return }
-        let failed = Set(outcomes.filter { !$0.status.isSuccess }.map(\.id))
-        let requested = draft.root.placements(in: target.layoutArea, scale: target.scale).compactMap { placement -> (LayoutWindowChoice, CGRect)? in
+    func apply() {
+        guard canApply, let draft, let target else { return }
+        let placements = draft.root.placements(in: target.layoutArea, scale: target.scale).compactMap { placement -> (regionID: UUID, choice: LayoutWindowChoice, frame: CGRect)? in
             guard case .leaf(let regionID) = placement.region, let id = draft.assignments[regionID],
-                  !retryFailed || failed.contains(id), let choice = windows.first(where: { $0.id == id }) else { return nil }
-            return (choice, placement.frame)
+                  let choice = windows.first(where: { $0.id == id }) else { return nil }
+            return (regionID, choice, placement.frame)
         }
-        // Never silently omit a window that disappeared from a refreshed catalogue.
-        let expected = retryFailed ? failed.count : draft.root.leafIDs.count
-        guard requested.count == expected, !requested.isEmpty else {
-            messageKey = "部分窗口已不可用，请继续编辑并重新选择。"
-            return
-        }
-        let previous = outcomes
+        let requested = placements.map { ($0.choice, $0.frame) }
         let expectedTopology = topology
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        // Capture the visible cards before hiding the editor. These frames use
+        // SwiftUI's top-left panel origin; overlays use AppKit screen coordinates.
+        let highlights = placements.compactMap { placement -> (id: UUID, destination: CGRect, highlight: LayoutPlacementHighlight)? in
+            guard let panel, let card = windowCardFrames[placement.regionID] else { return nil }
+            let source = CGRect(x: panel.frame.minX + card.minX, y: panel.frame.maxY - card.maxY,
+                                width: card.width, height: card.height)
+            let destination = QuickLayoutGeometry.appKitRect(from: placement.frame, primaryScreenTop: target.primaryTop)
+            let highlight = LayoutPlacementHighlight(source: reduceMotion ? destination : source,
+                in: target.visibleFrame, identifier: "multiLayoutPlacement-\(placement.choice.id)")
+            return (placement.choice.id, destination, highlight)
+        }
+        placementHighlights = highlights.map(\.highlight)
         isApplying = true
         choosingWindow = false
-        isUndoResult = false
+        panel?.orderOut(nil)
+        // Each task starts immediately, so all regions expand together while
+        // the service independently arranges the real windows.
+        let flights = highlights.map { placement in
+            Task { await placement.highlight.move(to: placement.destination, duration: reduceMotion ? 0 : 0.3) }
+        }
         operation = Task { [weak self] in
             guard let self else { return }
+            defer {
+                clearPlacementHighlights()
+                finishOperation()
+            }
             let result: LayoutBatchResult
             if previewMode {
-                let failedID = previewFailureRemaining ? requested.last?.0.id : nil
-                previewFailureRemaining = false
-                result = LayoutBatchResult(outcomes: requested.map { LayoutWindowOutcome(choice: $0.0, requested: $0.1,
-                                           actual: $0.0.id == failedID ? $0.0.window.frame : $0.1,
-                                           status: $0.0.id == failedID ? .constrained : .placed) },
-                                           originals: requested.map { LayoutWindowRestore(choice: $0.0, frame: $0.0.window.frame) })
+                let failure = previewFailure
+                let failedID = failure != nil ? requested.last?.0.id : nil
+                previewFailure = nil
+                let previewOutcomes = requested.map { choice, frame in
+                    let sizeLimited = choice.minimumSize.map { $0.width > frame.width + 2 || $0.height > frame.height + 2 } ?? false
+                    let status: LayoutWindowOutcome.Status
+                    if failure == .permissionDenied { status = .permissionDenied }
+                    else if choice.id == failedID, let failure, failure != .constrained { status = failure }
+                    else { status = .placed }
+                    var actual = status.isSuccess ? frame : choice.window.frame
+                    if status.isSuccess, sizeLimited || (choice.id == failedID && failure == .constrained) {
+                        let minimum = choice.minimumSize ?? choice.window.frame.size
+                        actual.size = CGSize(width: max(frame.width, minimum.width), height: max(frame.height, minimum.height))
+                    }
+                    return LayoutWindowOutcome(choice: choice, requested: frame,
+                        actual: actual, status: status)
+                }
+                result = LayoutBatchResult(outcomes: previewOutcomes,
+                    originals: previewOutcomes.filter { $0.status.isSuccess }.map {
+                        LayoutWindowRestore(choice: $0.choice, frame: $0.choice.window.frame)
+                    })
             } else { result = await service.apply(requested, topology: expectedTopology) }
             if undoHistory.recordApplication(result.originals, hasSuccessfulResults: result.outcomes.contains { $0.status.isSuccess }) {
                 undoTopology = expectedTopology
             }
             undoAvailable = !undoHistory.originals.isEmpty
-            if retryFailed {
-                let replacements = Dictionary(uniqueKeysWithValues: result.outcomes.map { ($0.id, $0) })
-                outcomes = previous.map { replacements[$0.id] ?? $0 }
-            } else { outcomes = result.outcomes }
-            let completed = !outcomes.isEmpty && outcomes.allSatisfy { $0.status.isSuccess }
-            if completed {
-                // Release the layout panel before handing the arranged windows
-                // to their apps. A retry must reveal the whole completed layout.
-                panel?.orderOut(nil)
-                if !previewMode {
-                    await service.reveal(outcomes, topology: expectedTopology)
-                    statistics.record()
+            outcomes = result.outcomes
+            guard !Task.isCancelled, !displayInvalidated else { return }
+            let landings = zip(highlights, flights).map { placement, flight in
+                Task {
+                    await flight.value
+                    guard !self.displayInvalidated,
+                          let outcome = result.outcomes.first(where: { $0.id == placement.id }),
+                          outcome.status.isSuccess else { placement.highlight.hide(); return }
+                    if let actual = outcome.actual {
+                        let landed = QuickLayoutGeometry.appKitRect(from: actual, primaryScreenTop: target.primaryTop)
+                        if landed != placement.destination {
+                            await placement.highlight.move(to: landed, duration: reduceMotion ? 0 : 0.12)
+                        }
+                    }
+                    guard !self.displayInvalidated else { placement.highlight.hide(); return }
+                    await placement.highlight.fadeOut()
+                    placement.highlight.hide()
                 }
             }
-            finishOperation(showPanel: !completed)
-            if completed { dismiss() }
+            if !previewMode, outcomes.contains(where: { $0.status.isSuccess }) {
+                await service.reveal(outcomes, topology: expectedTopology)
+                statistics.record()
+            }
+            for landing in landings { await landing.value }
         }
     }
 
     func undoApplication() {
         guard !isApplying, !undoHistory.originals.isEmpty else { return }
-        guard previewMode || LayoutDisplay.current() == undoTopology else {
-            messageKey = "显示器配置已变化，无法安全撤销上次应用。"
-            return
-        }
         let requests = undoHistory.originals.map { ($0.choice, $0.frame) }
         let expectedTopology = undoTopology
         isApplying = true
         choosingWindow = false
-        isUndoResult = true
         operation = Task { [weak self] in
             guard let self else { return }
             if previewMode {
@@ -544,13 +569,15 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
         }
     }
 
-    var canRetry: Bool { !isUndoResult && outcomes.contains { !$0.status.isSuccess } && !displayInvalidated }
-
-    private func finishOperation(showPanel: Bool = true) {
+    private func finishOperation() {
         isApplying = false
         operation = nil
-        if !previewMode, LayoutDisplay.current() != topology { displayInvalidated = true }
-        if showPanel { panel?.makeKeyAndOrderFront(nil) }
+        dismiss()
+    }
+
+    private func clearPlacementHighlights() {
+        for highlight in placementHighlights { highlight.hide() }
+        placementHighlights = []
     }
 
     private func installMonitors() {
@@ -571,7 +598,10 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                 guard let self, self.isPresented else { return }
                 self.displays = LayoutDisplay.current()
                 self.displayInvalidated = self.displays != self.topology
-                if self.displayInvalidated { self.operation?.cancel() }
+                if self.displayInvalidated {
+                    self.operation?.cancel()
+                    self.clearPlacementHighlights()
+                }
             }
         }
         if !previewMode {
@@ -653,7 +683,9 @@ final class MultiWindowLayoutController: NSObject, ObservableObject, NSWindowDel
                                     applicationName: index % 2 == 0 ? "Safari" : "Finder", icon: NSImage(named: NSImage.folderName),
                                     title: "\(settings.text("示例窗口")) \(index)", frame: CGRect(x: 40, y: 60, width: 800, height: 600),
                                     minimized: false, captureID: nil, stackOrder: index)
-            return LayoutWindowChoice(window: window, processLaunchDate: nil)
+            let sizeLimited = index == 2 && ProcessInfo.processInfo.arguments.contains("--ui-preview-multi-layout-size-limits")
+            return LayoutWindowChoice(window: window, processLaunchDate: nil,
+                minimumSize: sizeLimited ? CGSize(width: 100_000, height: 100_000) : nil)
         }
         if ProcessInfo.processInfo.arguments.contains("--ui-preview-thumbnails") {
             for (index, choice) in windows.enumerated() {
