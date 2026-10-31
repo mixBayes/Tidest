@@ -1,10 +1,10 @@
 # Tidest
 
-[English](README.md) · **简体中文**
+[English](README.md) · **简体中文** · [官方网站](https://tidest.app/zh-hans/) · [免费下载](https://tidest.app/zh-hans/download/) · [Mac 窗口管理工具对比](https://tidest.app/zh-hans/guides/free-mac-window-managers/)
 
-macOS 菜单栏工具，用于切换窗口、快速排列窗口，以及把常用窗口的预览放到屏幕侧边。
+**Tidest 是一款免费开源的 macOS 窗口管理工具，集成了单窗口切换（`Option + Tab`）、九宫格单窗分屏（`Option + Q`）、多窗口组合布局画布（`Option + Shift + Q`）与屏幕边缘停靠栏（`Option + W`），开启“保留（Keep）”后可在窗口关闭后按原路径重新打开 Finder 文件夹、终端目录以及 Safari / Chrome 标签页。**
 
-同一个应用的多个窗口可以分别选择，包括 Finder 打开的不同文件夹窗口。
+同一个应用的多个窗口可以分别选择，包括 Finder 打开的不同文件夹窗口。原生支持 Apple 芯片与 Intel Mac（macOS 14 Sonoma 及以上）。详见 [Tidest 与 Rectangle、AltTab、Loop、Moom、Magnet、AeroSpace 及 macOS 自带分屏的功能对比](https://tidest.app/zh-hans/guides/free-mac-window-managers/)。
 
 发布流程会在 GitHub Actions 中构建安装包，完成 Developer ID 签名、Apple 公证和构建来源证明，再通过不可变发布分发。首次配置与下载文件验证方法见[发布与验证](docs/RELEASING.md)。
 

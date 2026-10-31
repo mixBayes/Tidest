@@ -1,10 +1,10 @@
 # Tidest
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [Website](https://tidest.app/en/) · [Download](https://tidest.app/en/download/) · [Mac Window Managers Compared](https://tidest.app/en/guides/free-mac-window-managers/)
 
-A macOS menu bar app for switching between individual windows, arranging them on screen, and keeping frequently used windows within reach.
+**Tidest is a free, open-source macOS window manager that combines per-window switching (`Option + Tab`), 3×3 grid snapping (`Option + Q`), a multi-window layout canvas (`Option + Shift + Q`), and a slide-out Window Dock (`Option + W`) with Keep support to reopen closed Finder folders, Terminal directories, and Safari or Chrome tabs.**
 
-Choose the exact window you need, including several windows from the same app or different folders open in Finder.
+Choose the exact window you need, including several windows from the same app or different folders open in Finder. Runs natively on Apple silicon and Intel Macs with macOS 14 Sonoma or later. See [how Tidest compares with Rectangle, AltTab, Loop, Moom, Magnet, AeroSpace, and macOS built-in tiling](https://tidest.app/en/guides/free-mac-window-managers/).
 
 The release workflow builds Developer ID signed, Apple notarized packages with verifiable build provenance for immutable GitHub releases. See [release setup and download verification](docs/RELEASING.md) for setup requirements and verification commands.
 
